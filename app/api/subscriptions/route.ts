@@ -16,8 +16,8 @@ import { logger } from "@/lib/logs";
 
 const CreateSubscriptionSchema = z.object({
   email: z.string().email("Invalid email format").max(320, "Email too long"),
-  model: z.number().int().min(1).max(6),
-  datacenter: z.string().min(2).max(5).toUpperCase(),
+  model: z.number().int().min(1).max(6).optional(),
+  datacenter: z.string().min(2).max(5).toUpperCase().optional(),
   // Optional: allow multiple subscriptions in one request
   subscriptions: z
     .array(
@@ -29,7 +29,17 @@ const CreateSubscriptionSchema = z.object({
     .optional(),
 });
 
-const validDatacenters = ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR"];
+const validDatacenters = [
+  "GRA",
+  "SBG",
+  "BHS",
+  "WAW",
+  "UK",
+  "DE",
+  "FR",
+  "SGP",
+  "SYD",
+];
 
 // ====================================
 // HELPER FUNCTIONS
@@ -118,6 +128,23 @@ export async function POST(request: NextRequest) {
 
     // Additional custom validation
     validateSubscriptionData(validatedData);
+
+    // Ensure we have at least one subscription method
+    const hasDirectSubscription =
+      validatedData.model && validatedData.datacenter;
+    const hasSubscriptionsArray =
+      validatedData.subscriptions && validatedData.subscriptions.length > 0;
+
+    if (!hasDirectSubscription && !hasSubscriptionsArray) {
+      return NextResponse.json(
+        {
+          error: "No subscriptions provided",
+          message:
+            "Please provide subscription data either as direct model/datacenter or in subscriptions array",
+        },
+        { status: 400 }
+      );
+    }
 
     logger.log(
       `New subscription request from ${clientIP} for ${validatedData.email}`

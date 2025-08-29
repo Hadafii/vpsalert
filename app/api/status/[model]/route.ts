@@ -47,13 +47,20 @@ const DATACENTER_INFO: Record<
   string,
   { name: string; country: string; flag: string }
 > = {
+  // Europe
   GRA: { name: "Gravelines", country: "France", flag: "🇫🇷" },
   SBG: { name: "Strasbourg", country: "France", flag: "🇫🇷" },
-  BHS: { name: "Beauharnois", country: "Canada", flag: "🇨🇦" },
+  RBX: { name: "Roubaix", country: "France", flag: "🇫🇷" },
   WAW: { name: "Warsaw", country: "Poland", flag: "🇵🇱" },
-  UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
   DE: { name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
-  FR: { name: "Roubaix", country: "France", flag: "🇫🇷" },
+  UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
+
+  // Americas
+  BHS: { name: "Beauharnois", country: "Canada", flag: "🇨🇦" },
+
+  // Asia Pacific - NEW!
+  SGP: { name: "Singapore", country: "Singapore", flag: "🇸🇬" },
+  SYD: { name: "Sydney", country: "Australia", flag: "🇦🇺" },
 };
 
 // Helper function to get cached data

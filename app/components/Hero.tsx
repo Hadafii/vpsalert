@@ -11,6 +11,7 @@ import {
   IconShield,
   IconBell,
   IconHeartbeat,
+  IconFreeRights,
 } from "@tabler/icons-react";
 
 export default function Hero() {
@@ -51,6 +52,16 @@ export default function Hero() {
           />
         </div>
         <div className="relative z-20 max-w-6xl mx-auto px-6 text-center pt-16 md:pt-12 lg:pt-0">
+          <div className="flex items-center justify-center mb-6">
+            <div className="border bg-white/10 dark:bg-black/10  p-1.5 w-fit border-white/20 rounded-full flex items-center font-medium hover:-translate-y-1.5 hover:scale-105 hover:shadow-blue-500/50 hover:shadow-2xl transition-all">
+              <div className="bg-gradient-to-tl from-sky-200 via-blue-100 to-indigo-200 dark:bg-gradient-to-tl dark:from-blue-950 dark:via-slate-900 dark:to-indigo-900 text-slate-800 dark:text-white font-semibold transition-colors rounded-full p-2 me-2 ">
+                100%
+              </div>
+              Completely Free
+              <IconFreeRights className="w-6 h-6 mx-2" />
+            </div>
+          </div>
+
           <BlurText
             text="Realtime Monitoring OVH VPS Availability and instant notifications"
             delay={200}

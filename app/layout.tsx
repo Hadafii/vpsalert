@@ -160,13 +160,13 @@ export default function RootLayout({
         {/* Preload critical resources for better performance */}
         <link as="image" href="/favicon-32x32.png" rel="preload" />
         <link as="image" href="/apple-touch-icon.png" rel="preload" />
-        <link
+        {/* <link
           as="font"
           href="/fonts/figtree.woff2"
           rel="preload"
           type="font/woff2"
           crossOrigin="anonymous"
-        />
+        /> */}
 
         {/* Web App Manifest */}
         <link href="/site.webmanifest" rel="manifest" />

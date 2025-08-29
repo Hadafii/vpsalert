@@ -1,17 +1,47 @@
-// hooks/useVPSMonitor.ts
+// hooks/useVPSMonitor.ts - Clean Production-Ready Implementation
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import axios from "axios";
-import {
-  DatacenterStatus,
-  MonitorData,
-  VPSModelData,
-} from "@/app/components/Monitor";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { logger } from "@/lib/logs";
+
 // ====================================
 // TYPES
 // ====================================
+
+interface DatacenterStatus {
+  id: number;
+  model: number;
+  datacenter: string;
+  status: "available" | "out-of-stock";
+  last_checked: string;
+  last_changed: string | null;
+}
+
+interface VPSModelData {
+  model: number;
+  name: string;
+  price: string;
+  specs: {
+    cpu: string;
+    ram: string;
+    storage: string;
+    bandwidth: string;
+  };
+  datacenters: DatacenterStatus[];
+  availableCount: number;
+  totalCount: number;
+}
+
+interface MonitorData {
+  models: VPSModelData[];
+  summary: {
+    total: number;
+    available: number;
+    outOfStock: number;
+    availabilityPercentage: number;
+  };
+  lastUpdated: string;
+}
 
 interface APIResponse {
   models: Record<number, DatacenterStatus[]>;
@@ -26,7 +56,7 @@ interface APIResponse {
 }
 
 interface UseVPSMonitorOptions {
-  refreshInterval?: number; // in milliseconds
+  refreshInterval?: number;
   enableSSE?: boolean;
   onError?: (error: Error) => void;
   onUpdate?: (data: MonitorData) => void;
@@ -38,11 +68,14 @@ interface UseVPSMonitorReturn {
   error: string | null;
   lastFetch: Date | null;
   refetch: () => Promise<void>;
-  isConnected: boolean; // SSE connection status
+  isConnected: boolean;
+  connectionMode: "sse" | "polling" | "offline";
+  sseEvents: number;
+  isTabVisible: boolean;
 }
 
 // ====================================
-// VPS MODEL CONFIGURATIONS
+// CONSTANTS
 // ====================================
 
 const VPS_CONFIGS = {
@@ -75,7 +108,7 @@ const VPS_CONFIGS = {
 } as const;
 
 // ====================================
-// UTILITY FUNCTIONS
+// UTILITIES
 // ====================================
 
 const parseSpecs = (specs: string) => {
@@ -89,17 +122,14 @@ const parseSpecs = (specs: string) => {
 };
 
 const transformAPIData = (apiData: APIResponse): MonitorData => {
-  // Transform the grouped models data into VPSModelData array
   const models: VPSModelData[] = Object.entries(apiData.models).map(
     ([modelNum, datacenters]) => {
       const modelNumber = parseInt(modelNum);
       const config = VPS_CONFIGS[modelNumber as keyof typeof VPS_CONFIGS];
       const specs = parseSpecs(config?.specs || "");
-
       const availableCount = datacenters.filter(
         (dc) => dc.status === "available"
       ).length;
-      const totalCount = datacenters.length;
 
       return {
         model: modelNumber,
@@ -108,13 +138,13 @@ const transformAPIData = (apiData: APIResponse): MonitorData => {
         specs,
         datacenters,
         availableCount,
-        totalCount,
+        totalCount: datacenters.length,
       };
     }
   );
 
   return {
-    models: models.sort((a, b) => a.model - b.model), // Ensure proper ordering
+    models: models.sort((a, b) => a.model - b.model),
     summary: apiData.summary,
     lastUpdated: apiData.lastUpdated,
   };
@@ -128,132 +158,124 @@ export const useVPSMonitor = (
   options: UseVPSMonitorOptions = {}
 ): UseVPSMonitorReturn => {
   const {
-    refreshInterval = 15000, // 15 seconds default
-    enableSSE = false,
+    refreshInterval = 15000,
+    enableSSE = true,
     onError,
     onUpdate,
   } = options;
 
-  // State
+  // ====================================
+  // STATE
+  // ====================================
+
   const [data, setData] = useState<MonitorData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-
-  // Refs
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const isComponentMountedRef = useRef(true);
-
-  // Create axios instance with interceptors
-  const api = axios.create({
-    baseURL: "/api",
-    timeout: 10000,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  // Response interceptor for error handling
-  api.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      logger.error("API Error:", error);
-
-      let message = "An unexpected error occurred";
-
-      if (error.code === "ECONNABORTED") {
-        message = "Request timeout - server may be busy";
-      } else if (error.response) {
-        // Server responded with error status
-        message =
-          error.response.data?.message ||
-          `Server error (${error.response.status})`;
-      } else if (error.request) {
-        // Request made but no response received
-        message = "No response from server - please check your connection";
-      }
-
-      return Promise.reject(new Error(message));
-    }
+  const [connectionMode, setConnectionMode] = useState<
+    "sse" | "polling" | "offline"
+  >("offline");
+  const [sseEvents, setSseEvents] = useState(0);
+  const [isTabVisible, setIsTabVisible] = useState(() =>
+    typeof document !== "undefined" ? !document.hidden : true
   );
 
   // ====================================
-  // DATA FETCHING
+  // REFS - STABLE REFERENCES
   // ====================================
 
-  const fetchData = useCallback(async (): Promise<MonitorData | null> => {
-    try {
-      setError(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const isComponentMountedRef = useRef(true);
+  const initializationRef = useRef(false);
+  const callbacksRef = useRef({ onError, onUpdate });
 
-      const response = await api.get<APIResponse>("/status", {
-        params: {
-          format: "grouped",
-          summary: "true",
-        },
+  // Keep callbacks current without causing re-renders
+  useEffect(() => {
+    callbacksRef.current = { onError, onUpdate };
+  });
+
+  // ====================================
+  // STABLE API FUNCTIONS
+  // ====================================
+
+  const fetchVPSData = useCallback(async (): Promise<MonitorData | null> => {
+    try {
+      const response = await fetch("/api/status?summary=true", {
+        cache: "no-cache",
+        headers: { "Cache-Control": "no-cache" },
       });
 
-      const transformedData = transformAPIData(response.data);
-      return transformedData;
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+
+      const rawData: APIResponse = await response.json();
+      return transformAPIData(rawData);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to fetch VPS status";
-      setError(errorMessage);
-      onError?.(err instanceof Error ? err : new Error(errorMessage));
+      const error =
+        err instanceof Error ? err : new Error("Failed to fetch VPS data");
+      setError(error.message);
+      callbacksRef.current.onError?.(error);
       return null;
     }
-  }, [api, onError]);
+  }, []);
+
+  const updateData = useCallback((newData: MonitorData) => {
+    if (!isComponentMountedRef.current) return;
+
+    setData(newData);
+    setLastFetch(new Date());
+    setError(null);
+    callbacksRef.current.onUpdate?.(newData);
+  }, []);
 
   const refetch = useCallback(async (): Promise<void> => {
     if (!isComponentMountedRef.current) return;
 
+    logger.log("Manual refetch triggered");
     setIsLoading(true);
 
     try {
-      const newData = await fetchData();
-
-      if (newData && isComponentMountedRef.current) {
-        setData(newData);
-        setLastFetch(new Date());
-        onUpdate?.(newData);
+      const newData = await fetchVPSData();
+      if (newData) {
+        updateData(newData);
       }
-    } catch (err) {
-      logger.error("Refetch error:", err);
     } finally {
-      if (isComponentMountedRef.current) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
-  }, [fetchData, onUpdate]);
+  }, [fetchVPSData, updateData]);
 
-  // SERVER-SENT EVENTS
+  // ====================================
+  // SSE MANAGEMENT
   // ====================================
 
-  const setupSSE = useCallback(() => {
+  const createSSEConnection = useCallback(() => {
     if (!enableSSE || typeof window === "undefined") return;
 
     // Prevent multiple connections
     if (eventSourceRef.current?.readyState === EventSource.OPEN) {
-      logger.log("SSE already connected, skipping setup");
+      logger.log("SSE already connected");
       return;
     }
 
-    // Close existing connection
+    // Clean up existing connection
     if (eventSourceRef.current) {
-      logger.log("Closing existing SSE connection");
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
 
     try {
-      logger.log("Setting up new SSE connection");
+      logger.log("Establishing SSE connection");
       const eventSource = new EventSource("/api/sse/status");
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
-        logger.log("SSE connection established");
         if (isComponentMountedRef.current) {
+          logger.log("SSE connected");
           setIsConnected(true);
+          setConnectionMode("sse");
           setError(null);
         }
       };
@@ -263,13 +285,12 @@ export const useVPSMonitor = (
 
         try {
           const eventData = JSON.parse(event.data);
+          setSseEvents((prev) => prev + 1);
 
           if (eventData.type === "status-update" && eventData.updates) {
-            // Handle real-time updates
             setData((currentData) => {
               if (!currentData) return currentData;
 
-              // Update the data with the new status changes
               const updatedModels = currentData.models.map((model) => ({
                 ...model,
                 datacenters: model.datacenters.map((dc) => {
@@ -277,15 +298,10 @@ export const useVPSMonitor = (
                     (u: any) =>
                       u.model === model.model && u.datacenter === dc.datacenter
                   );
-
-                  if (update) {
-                    return { ...dc, status: update.status };
-                  }
-                  return dc;
+                  return update ? { ...dc, status: update.status } : dc;
                 }),
               }));
 
-              // Recalculate summary
               const totalAvailable = updatedModels.reduce(
                 (sum, model) =>
                   sum +
@@ -313,82 +329,111 @@ export const useVPSMonitor = (
                 lastUpdated: new Date().toISOString(),
               };
 
-              // Call onUpdate only if component is still mounted
-              if (isComponentMountedRef.current && onUpdate) {
-                onUpdate(updatedData);
-              }
+              callbacksRef.current.onUpdate?.(updatedData);
               return updatedData;
             });
           }
         } catch (err) {
-          logger.error("Error parsing SSE data:", err);
+          logger.error("SSE message parse error:", err);
         }
       };
 
-      eventSource.onerror = (error) => {
-        logger.error("SSE error:", error);
+      eventSource.onerror = () => {
         if (isComponentMountedRef.current) {
+          logger.error("SSE connection error");
           setIsConnected(false);
+          setConnectionMode(refreshInterval > 0 ? "polling" : "offline");
         }
-
-        // Don't attempt auto-reconnect to prevent infinite loops
-        // Let the component handle reconnection manually
       };
     } catch (err) {
-      logger.error("Failed to setup SSE:", err);
-      if (isComponentMountedRef.current) {
-        setIsConnected(false);
-      }
+      logger.error("SSE setup failed:", err);
+      setConnectionMode(refreshInterval > 0 ? "polling" : "offline");
     }
-  }, [enableSSE]); // Removed onUpdate from dependencies
+  }, [enableSSE, refreshInterval]);
 
   // ====================================
-  // EFFECTS
+  // POLLING MANAGEMENT
   // ====================================
 
-  // Initial data fetch
-  useEffect(() => {
-    isComponentMountedRef.current = true;
-    refetch();
+  const setupPolling = useCallback(() => {
+    // Clear existing polling
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
 
-    return () => {
-      isComponentMountedRef.current = false;
-    };
-  }, []);
+    // Only poll if SSE is disabled or failed, and polling is requested
+    if (refreshInterval > 0 && (!enableSSE || !isConnected)) {
+      logger.log(`Setting up polling: ${refreshInterval}ms`);
 
-  // Setup polling
-  useEffect(() => {
-    if (refreshInterval > 0 && !enableSSE) {
-      intervalRef.current = setInterval(refetch, refreshInterval);
+      intervalRef.current = setInterval(async () => {
+        if (!isComponentMountedRef.current) return;
 
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
+        const newData = await fetchVPSData();
+        if (newData) {
+          updateData(newData);
         }
-      };
-    }
-  }, [refreshInterval, enableSSE, refetch]);
+      }, refreshInterval);
 
-  // Setup SSE - Only run once when enableSSE changes
+      setConnectionMode("polling");
+    }
+  }, [refreshInterval, enableSSE, isConnected, fetchVPSData, updateData]);
+
+  // ====================================
+  // TAB VISIBILITY
+  // ====================================
+
   useEffect(() => {
-    if (enableSSE) {
-      setupSSE();
-    }
+    const handleVisibilityChange = () => {
+      const visible = !document.hidden;
+      setIsTabVisible(visible);
 
-    return () => {
-      if (eventSourceRef.current) {
-        logger.log("Cleaning up SSE connection");
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-        setIsConnected(false);
+      // Reconnect SSE if tab becomes visible and SSE is enabled but not connected
+      if (visible && enableSSE && !isConnected) {
+        logger.log("Tab visible, reconnecting SSE");
+        createSSEConnection();
       }
     };
-  }, [enableSSE]); // Removed setupSSE from dependencies to prevent re-runs
 
-  // Cleanup on unmount
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [enableSSE, isConnected, createSSEConnection]);
+
+  // ====================================
+  // INITIALIZATION - SINGLE ENTRY POINT
+  // ====================================
+
   useEffect(() => {
+    if (initializationRef.current) return;
+
+    initializationRef.current = true;
+    isComponentMountedRef.current = true;
+
+    logger.log("useVPSMonitor initializing");
+
+    const initialize = async () => {
+      // Initial data fetch
+      const initialData = await fetchVPSData();
+      if (initialData && isComponentMountedRef.current) {
+        updateData(initialData);
+      }
+
+      setIsLoading(false);
+
+      // Setup connections
+      if (enableSSE) {
+        createSSEConnection();
+      } else {
+        setConnectionMode(refreshInterval > 0 ? "polling" : "offline");
+      }
+    };
+
+    initialize();
+
     return () => {
       isComponentMountedRef.current = false;
+      initializationRef.current = false;
 
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -396,20 +441,56 @@ export const useVPSMonitor = (
 
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+
+      logger.log("useVPSMonitor cleanup");
+    };
+  }, []); // Empty dependency array - run once
+
+  // ====================================
+  // CONNECTION MANAGEMENT
+  // ====================================
+
+  useEffect(() => {
+    if (!initializationRef.current) return;
+
+    setupPolling();
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
     };
-  }, []);
+  }, [setupPolling]);
 
   // ====================================
-  // RETURN
+  // RETURN VALUES
   // ====================================
 
-  return {
-    data,
-    isLoading,
-    error,
-    lastFetch,
-    refetch,
-    isConnected: enableSSE ? isConnected : true, // Always true for polling mode
-  };
+  return useMemo(
+    () => ({
+      data,
+      isLoading,
+      error,
+      lastFetch,
+      refetch,
+      isConnected: enableSSE ? isConnected : true,
+      connectionMode,
+      sseEvents,
+      isTabVisible,
+    }),
+    [
+      data,
+      isLoading,
+      error,
+      lastFetch,
+      refetch,
+      enableSSE,
+      isConnected,
+      connectionMode,
+      sseEvents,
+      isTabVisible,
+    ]
+  );
 };

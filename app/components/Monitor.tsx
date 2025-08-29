@@ -2,6 +2,7 @@
 "use client";
 import { logger } from "@/lib/logs";
 import React from "react";
+import { useEffect } from "react";
 import {
   Card,
   CardBody,
@@ -26,12 +27,16 @@ import {
   IconRefresh,
   IconWifi,
   IconWifiOff,
+  IconShield,
+  IconArrowRight,
 } from "@tabler/icons-react";
 import { MemoryStick } from "lucide-react";
 import { useVPSMonitor } from "@/hooks/useVPSMonitor";
 import { useCallback } from "react";
 import SubscriptionForm from "./SubscriptionForm";
 import { useRouter } from "next/navigation";
+import DevMonitor, { setupDevConsoleHelpers } from "./DevMonitor";
+
 // ====================================
 // TYPE DEFINITIONS
 // ====================================
@@ -109,6 +114,7 @@ const VPS_CONFIGS = {
   },
 } as const;
 
+// REPLACE DATACENTER_INFO dengan ini (add SGP & SYD):
 const DATACENTER_INFO = {
   GRA: { name: "Gravelines", country: "France", flag: "🇫🇷" },
   SBG: { name: "Strasbourg", country: "France", flag: "🇫🇷" },
@@ -117,6 +123,9 @@ const DATACENTER_INFO = {
   UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
   DE: { name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
   FR: { name: "Roubaix", country: "France", flag: "🇫🇷" },
+  // NEW: Add missing datacenters
+  SGP: { name: "Singapore", country: "Singapore", flag: "🇸🇬" },
+  SYD: { name: "Sydney", country: "Australia", flag: "🇦🇺" },
 } as const;
 
 // ====================================
@@ -154,11 +163,11 @@ const StatusOverview: React.FC<{
   lastUpdated: string;
   isLoading: boolean;
 }> = ({ summary, lastUpdated, isLoading }) => (
-  <Card className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-none shadow-lg">
+  <Card className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20  border-primary">
     <CardHeader className="pb-3">
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+          <div className="p-2 bg-blue-200 dark:bg-blue-900/30 rounded-lg">
             <IconTrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
@@ -175,8 +184,8 @@ const StatusOverview: React.FC<{
           placement="top-right"
           className="text-white"
         >
-          <div className="p-2 bg-success-100 dark:bg-success-900/30 rounded-lg">
-            <IconServer className="w-6 h-6 text-success-600 dark:text-success-400" />
+          <div className="p-2 bg-success-100  rounded-lg">
+            <IconServer className="w-6 h-6 text-success " />
           </div>
         </Badge>
       </div>
@@ -244,9 +253,9 @@ const DatacenterBadge: React.FC<{
       size={isSmall ? "sm" : "md"}
       variant={isAvailable ? "flat" : "bordered"}
       color={isAvailable ? "success" : "default"}
-      className={`cursor-pointer transition-all hover:scale-105 ${
-        isAvailable ? "bg-success-50 dark:bg-success-900/20" : ""
-      }`}
+      // className={`cursor-pointer transition-all hover:scale-105 ${
+      //   isAvailable ? "bg-success-50 dark:bg-success-900/20" : ""
+      // }`}
       onClick={() => onSubscribe?.(datacenter.datacenter)}
       startContent={
         isAvailable ? (
@@ -273,8 +282,37 @@ const VPSModelCard: React.FC<{
   const specs = parseSpecs(config?.specs || "");
   const hasAvailability = model.availableCount > 0;
 
+  // Get category styling based on availability
+  const getCategoryColor = ():
+    | "primary"
+    | "secondary"
+    | "success"
+    | "warning"
+    | "danger" => {
+    if (hasAvailability) return "primary";
+    return "danger";
+  };
+
+  const getCategoryGradient = (): string => {
+    if (hasAvailability) {
+      return "from-blue-200/10 via-cyan-200/5 to-blue-200/10";
+    }
+    return "";
+  };
+
+  const getCategoryBorder = (): string => {
+    if (hasAvailability) {
+      return "border-blue-200/60 dark:border-blue-500/30";
+    }
+    return "border-blue-200/60 dark:border-blue-500/30";
+  };
+
   const handleSubscribe = (datacenter: string) => {
     onSubscribe?.(model.model, datacenter);
+  };
+
+  const handleOrderClick = () => {
+    onOrder?.(model.model);
   };
 
   if (isLoading) {
@@ -296,131 +334,218 @@ const VPSModelCard: React.FC<{
     );
   }
 
+  const categoryColor = getCategoryColor();
+  const gradientClass = getCategoryGradient();
+  const borderClass = getCategoryBorder();
+
   return (
-    <Card
-      className={`h-full transition-all duration-300 hover:shadow-xl ${
-        hasAvailability
-          ? "border-success-200 dark:border-success-800 shadow-success-100 dark:shadow-success-900/20"
-          : "border-default-200 dark:border-default-700"
-      }`}
-    >
-      <CardHeader className="pb-3">
-        <div className="flex justify-between items-start w-full">
-          <div className="flex items-center gap-3">
-            <div
-              className={`p-2 rounded-lg ${
-                hasAvailability
-                  ? "bg-success-100 dark:bg-success-900/30"
-                  : "bg-default-100 dark:bg-default-800"
-              }`}
-            >
-              <IconServer
-                className={`w-5 h-5 ${
-                  hasAvailability
-                    ? "text-success-600 dark:text-success-400"
-                    : "text-default-600 dark:text-default-400"
-                }`}
-              />
+    <div className="relative hover:scale-105 transition-all">
+      {/* Popular/Featured Badge */}
+      {model.availableCount > 3 && (
+        <div className="absolute -top-3 left-0 right-0 mx-auto w-fit z-10">
+          <Chip
+            className="font-bold text-white"
+            color="success"
+            size="sm"
+            startContent={<IconCheck className="w-3 h-3" />}
+            variant="shadow"
+          >
+            HIGH AVAILABILITY
+          </Chip>
+        </div>
+      )}
+
+      <Card
+        className={`h-full backdrop-blur-xl bg-white/5 dark:bg-slate-800/40 shadow-2xl 
+          border-2 ${borderClass} ${hasAvailability ? "" : "opacity-60 grayscale"}
+          hover:shadow-3xl transition-all duration-500 overflow-hidden relative group`}
+      >
+        {/* Gradient Background Overlay */}
+        <div
+          className={`absolute inset-0 bg-gradient-to-br ${gradientClass} pointer-events-none transition-all duration-500 group-hover:opacity-80`}
+        />
+
+        {/* Status Badge */}
+        <div className="absolute top-4 right-4 z-20">
+          <Chip
+            className="font-semibold backdrop-blur-sm"
+            color={categoryColor}
+            size="sm"
+            startContent={
+              hasAvailability ? (
+                <IconCheck className="w-3 h-3" />
+              ) : (
+                <IconX className="w-3 h-3" />
+              )
+            }
+            variant="flat"
+          >
+            {hasAvailability ? "AVAILABLE" : "OUT OF STOCK"}
+          </Chip>
+        </div>
+
+        <CardBody className="p-6 relative z-10 flex flex-col justify-between h-full">
+          {/* Header Section */}
+          <div>
+            <div className="relative mb-4">
+              <div className="absolute left-0 top-0">
+                <div
+                  className={`w-10 h-10 rounded-xl bg-${categoryColor}/20 backdrop-blur-sm flex items-center justify-center border border-${categoryColor}/30`}
+                >
+                  <IconServer className={`w-5 h-5 text-${categoryColor}`} />
+                </div>
+              </div>
+              <div className="text-center">
+                <h3 className="text-2xl font-bold leading-tight">
+                  {config?.name}
+                </h3>
+                <div className="flex justify-center mt-1">
+                  <Chip
+                    className="capitalize backdrop-blur-sm"
+                    color="primary"
+                    size="sm"
+                    variant="flat"
+                  >
+                    VPS Server
+                  </Chip>
+                </div>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold">{config?.name}</h3>
-              <p className="text-small text-primary-600 dark:text-primary-400 font-medium">
-                From {config?.price}
+
+            {/* Price Section */}
+            <div className="text-center mb-6">
+              <div className={`text-3xl font-bold text-${categoryColor} mb-1`}>
+                {config?.price}
+                <span className="text-lg font-normal text-default-600">
+                  /month
+                </span>
+              </div>
+              <p className="text-sm text-default-600 mt-1 h-[20px]">
+                Starting from this price at OVH
               </p>
             </div>
-          </div>
-          <Badge
-            content={model.availableCount}
-            color={hasAvailability ? "success" : "danger"}
-            placement="top-right"
-            isInvisible={model.availableCount === 0}
-          >
-            <Chip
-              size="sm"
-              color={hasAvailability ? "success" : "danger"}
-              variant="flat"
-              startContent={
-                hasAvailability ? (
-                  <IconCheck className="w-3 h-3" />
-                ) : (
-                  <IconX className="w-3 h-3" />
+
+            <Divider className="my-4" />
+
+            {/* Specifications Grid */}
+            <div className="grid grid-cols-2 gap-3 pb-4">
+              <div
+                className={`bg-default-100/20 backdrop-blur-sm rounded-xl p-3 text-center border border-primary/10`}
+              >
+                <IconCpu className={`w-5 h-5 mx-auto text-${categoryColor}`} />
+                <p className="text-xs text-default-600">CPU</p>
+                <p className="font-bold text-sm">{specs.cpu}</p>
+              </div>
+
+              <div
+                className={`bg-default-100/20 backdrop-blur-sm rounded-xl p-3 text-center border border-primary/10`}
+              >
+                <MemoryStick
+                  className={`w-5 h-5 mx-auto text-${categoryColor}`}
+                />
+                <p className="text-xs text-default-600">RAM</p>
+                <p className="font-bold text-sm">{specs.ram}</p>
+              </div>
+
+              <div
+                className={`bg-default-100/20 backdrop-blur-sm rounded-xl p-3 text-center border border-primary/10`}
+              >
+                <IconDatabase
+                  className={`w-5 h-5 mx-auto text-${categoryColor}`}
+                />
+                <p className="text-xs text-default-600">Storage</p>
+                <p className="font-bold text-sm">{specs.storage}</p>
+              </div>
+
+              <div
+                className={`bg-default-100/20 backdrop-blur-sm rounded-xl p-3 text-center border border-primary/10`}
+              >
+                <IconNetwork
+                  className={`w-5 h-5 mx-auto text-${categoryColor}`}
+                />
+                <p className="text-xs text-default-600">Network</p>
+                <p className="font-bold text-sm">Unlimited</p>
+              </div>
+            </div>
+
+            {/* Additional Features */}
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center gap-2">
+                <IconServer className={`w-4 h-4 text-${categoryColor}`} />
+                <span className="text-sm font-medium">
+                  {config?.name} Configuration
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <IconShield className={`w-4 h-4 text-${categoryColor}`} />
+                <span className="text-sm font-medium">
+                  Anti-DDoS Protection
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <IconClock className={`w-4 h-4 text-${categoryColor}`} />
+                <span className="text-sm font-medium">99.99% SLA Uptime</span>
+              </div>
+            </div>
+
+            {/* Available Datacenters */}
+            <div className="mb-4">
+              <p className="text-small text-default-600 mb-2 font-medium">
+                Available Datacenters ({model.availableCount}/{model.totalCount}
                 )
-              }
-            >
-              {hasAvailability ? "Available" : "Out of Stock"}
-            </Chip>
-          </Badge>
-        </div>
-      </CardHeader>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {model.datacenters.map((dc) => (
+                  <DatacenterBadge
+                    key={dc.datacenter}
+                    datacenter={dc}
+                    onSubscribe={handleSubscribe}
+                    isSmall
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
 
-      <CardBody className="pt-0">
-        {/* Specifications */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <IconCpu className="w-4 h-4 text-default-500" />
-            <span className="text-small text-default-600">{specs.cpu}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <MemoryStick className="w-4 h-4 text-default-500" />
-            <span className="text-small text-default-600">{specs.ram}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <IconDatabase className="w-4 h-4 text-default-500" />
-            <span className="text-small text-default-600">{specs.storage}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <IconNetwork className="w-4 h-4 text-default-500" />
-            <span className="text-small text-default-600">
-              {specs.bandwidth}
-            </span>
-          </div>
-        </div>
+          {/* Action Button */}
+          <div className="space-y-3">
+            {hasAvailability ? (
+              <Button
+                className={`w-full bg-gradient-to-tl from-sky-200 via-blue-100 to-indigo-200 
+     dark:bg-gradient-to-tl dark:from-blue-950 dark:via-slate-900 dark:to-indigo-900 text-slate-800 
+             dark:text-white font-semibold shadow-blue-300  dark:shadow-blue-900 transition-all hover:scale-105 shadow-lg`}
+                color={categoryColor}
+                endContent={<IconArrowRight className="w-4 h-4" />}
+                onClick={handleOrderClick}
+                size="lg"
+                variant="shadow"
+              >
+                Order Now at OVH
+              </Button>
+            ) : (
+              <Button
+                className={`w-full font-semibold backdrop-blur-sm transition-all duration-300 border-2 border-${categoryColor} hover:bg-${categoryColor}/10`}
+                color={categoryColor}
+                endContent={<IconBell className="w-4 h-4" />}
+                onClick={() => onSubscribe?.(model.model, "")}
+                size="lg"
+                variant="bordered"
+              >
+                Subscribe to Alerts
+              </Button>
+            )}
 
-        <Divider className="my-3" />
-
-        {/* Available Datacenters */}
-        <div className="mb-4">
-          <p className="text-small text-default-600 mb-2 font-medium">
-            Available Datacenters ({model.availableCount}/{model.totalCount})
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {model.datacenters.map((dc) => (
-              <DatacenterBadge
-                key={dc.datacenter}
-                datacenter={dc}
-                onSubscribe={handleSubscribe}
-                isSmall
-              />
-            ))}
+            <p className="text-xs text-center text-default-500">
+              {hasAvailability
+                ? "⚡ Available now • Instant deployment"
+                : "🔔 Get notified when available"}
+            </p>
           </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-2 mt-auto">
-          {hasAvailability ? (
-            <Button
-              color="success"
-              variant="solid"
-              className="flex-1 font-medium"
-              startContent={<IconCheck className="w-4 h-4" />}
-              onClick={() => onOrder?.(model.model)}
-            >
-              Order Now
-            </Button>
-          ) : (
-            <Button
-              color="primary"
-              variant="bordered"
-              className="flex-1"
-              startContent={<IconBell className="w-4 h-4" />}
-              onClick={() => onSubscribe?.(model.model, "")}
-            >
-              Subscribe to Alerts
-            </Button>
-          )}
-        </div>
-      </CardBody>
-    </Card>
+        </CardBody>
+      </Card>
+    </div>
   );
 };
 
@@ -477,6 +602,9 @@ const Monitor: React.FC<MonitorProps> = () => {
     },
     [router]
   );
+  useEffect(() => {
+    setupDevConsoleHelpers();
+  }, []);
 
   // Handle subscription error
   const handleSubscriptionError = useCallback((error: string) => {
@@ -632,6 +760,7 @@ const Monitor: React.FC<MonitorProps> = () => {
           />
         </div>
       </div>
+      <DevMonitor />
     </section>
   );
 };

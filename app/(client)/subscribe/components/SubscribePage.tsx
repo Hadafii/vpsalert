@@ -34,15 +34,15 @@ const SubscribePage = () => {
 
   return (
     <Layout>
-      <section className="relative py-16 px-6 min-h-screen bg-gradient-to-br from-background to-default-50">
+      <section className="relative py-16 px-6 min-h-dvh bg-[#EEF6FF] dark:bg-[#000710] transition-colors">
         <div className="max-w-6xl mx-auto">
           {/* Navigation */}
-          <div className="mb-8 pt-28">
+          <div className="pt-12">
             <Button
               variant="light"
               startContent={<IconArrowLeft className="w-4 h-4" />}
               onClick={() => router.back()}
-              className="mb-4"
+              className=""
             >
               Back
             </Button>

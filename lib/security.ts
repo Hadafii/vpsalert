@@ -28,7 +28,8 @@ export const DatacenterSchema = z
   .max(5, "Datacenter code too long")
   .regex(/^[A-Z]{2,5}$/, "Invalid datacenter format")
   .refine(
-    (dc) => ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR"].includes(dc),
+    (dc) =>
+      ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR", "SGP", "SYD"].includes(dc),
     "Invalid datacenter"
   );
 
@@ -113,16 +114,17 @@ export function sanitizeDatacenter(datacenter: any): string {
 /**
  * Validate and sanitize token
  */
-export function sanitizeToken(token: any): string {
-  // Convert to string and lowercase
-  const strToken = String(token).toLowerCase().trim();
+export const sanitizeToken = (token: string): string => {
+  // Clean and validate verification token
+  const cleaned = token.trim().toLowerCase();
 
-  // Sanitize HTML
-  const sanitized = sanitizeHtml(strToken);
+  // Must be exactly 32 character hex string
+  if (!/^[a-f0-9]{32}$/.test(cleaned)) {
+    throw new Error("Invalid token format");
+  }
 
-  // Validate
-  return TokenSchema.parse(sanitized);
-}
+  return cleaned;
+};
 
 // ====================================
 // SQL INJECTION PREVENTION

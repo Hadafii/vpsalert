@@ -13,6 +13,8 @@ import {
   getCircuitBreakerStatus,
 } from "@/lib/ovh-circuit-breaker";
 import { logger } from "@/lib/logs";
+import { triggerSSEBroadcast } from "@/lib/sse-broadcast";
+
 // OVH API Configuration - Fixed untuk real endpoints
 const OVH_BASE_URL = "https://ca.api.ovh.com/1.0/vps/order/rule/datacenter";
 const OVH_PARAMS = "ovhSubsidiary=ASIA&os=";
@@ -20,13 +22,21 @@ const VPS_MODELS = [1, 2, 3, 4, 5, 6];
 
 // Datacenter mapping untuk response OVH
 const DATACENTER_MAPPING: Record<string, string> = {
-  gra: "GRA", // Gravelines
-  sbg: "SBG", // Strasbourg
-  bhs: "BHS", // Beauharnois
-  waw: "WAW", // Warsaw
-  lon: "UK", // London
-  fra: "DE", // Frankfurt
-  rbx: "FR", // Roubaix
+  // Europe
+  gra: "GRA", // Gravelines, France
+  sbg: "SBG", // Strasbourg, France
+  rbx: "RBX", // Roubaix, France
+  waw: "WAW", // Warsaw, Poland
+  fra: "DE", // Frankfurt, Germany (legacy)
+  // Americas
+  bhs: "BHS", // Beauharnois, Canada
+  // Asia Pacific
+  sgp: "SGP", // Singapore (NEW!)
+  syd: "SYD", // Sydney, Australia (NEW!)
+  // UK & Others
+  lon: "UK", // London, UK (legacy)
+  uk: "UK", // London, UK (current)
+  de: "DE", // Germany (current)
 };
 
 // Interface untuk OVH API Response (actual structure)
@@ -51,41 +61,73 @@ const parseOVHResponse = (
   const results: { datacenter: string; status: VPSStatus }[] = [];
 
   try {
-    // Format 1: datacenters array (based on your original API response)
+    // NEW API Structure - Handle "datacenters" array
     if (response.datacenters && Array.isArray(response.datacenters)) {
       response.datacenters.forEach((dc: any) => {
-        if (dc.datacenter && dc.status !== undefined) {
+        if (dc.datacenter) {
+          // Use datacenter code directly (SGP, DE, WAW, etc.)
+          const datacenterCode = dc.datacenter.toUpperCase();
+
+          // Determine status - prioritize linuxStatus untuk VPS Linux
+          let status: VPSStatus = "out-of-stock";
+
+          if (dc.linuxStatus === "available" || dc.status === "available") {
+            status = "available";
+          }
+
           results.push({
-            datacenter: dc.datacenter.toUpperCase(),
-            status: dc.status === "available" ? "available" : "out-of-stock",
+            datacenter: datacenterCode,
+            status: status,
           });
-        } else if (dc.datacenter && dc.linuxStatus) {
-          // Handle linuxStatus field from your API example
-          results.push({
-            datacenter: dc.datacenter.toUpperCase(),
-            status:
-              dc.linuxStatus === "available" ? "available" : "out-of-stock",
-          });
+
+          console.log(
+            `✅ Parsed: ${datacenterCode} → ${status} (linux: ${dc.linuxStatus})`
+          );
         }
       });
     }
 
-    // Fallback: if no valid data, mark all DCs as out-of-stock
-    if (results.length === 0) {
-      const defaultDCs = ["SGP", "DE", "WAW", "BHS", "GRA", "SBG", "SYD", "UK"];
-      defaultDCs.forEach((dc) => {
-        results.push({ datacenter: dc, status: "out-of-stock" });
+    // LEGACY: Handle old format if new format not available
+    else if (
+      response.available_datacenters &&
+      Array.isArray(response.available_datacenters)
+    ) {
+      response.available_datacenters.forEach((dc: string) => {
+        const mappedDC =
+          DATACENTER_MAPPING[dc.toLowerCase()] || dc.toUpperCase();
+        results.push({
+          datacenter: mappedDC,
+          status: "available",
+        });
       });
-      logger.warn(
-        `Model ${model}: Using fallback data, unexpected API response format`
-      );
+
+      if (
+        response.unavailable_datacenters &&
+        Array.isArray(response.unavailable_datacenters)
+      ) {
+        response.unavailable_datacenters.forEach((dc: string) => {
+          const mappedDC =
+            DATACENTER_MAPPING[dc.toLowerCase()] || dc.toUpperCase();
+          results.push({
+            datacenter: mappedDC,
+            status: "out-of-stock",
+          });
+        });
+      }
     }
 
-    return results;
+    // FALLBACK: Handle any other structure
+    else {
+      console.warn(
+        `Unknown OVH API response structure for model ${model}:`,
+        response
+      );
+    }
   } catch (error) {
-    logger.error(`Model ${model}: Error parsing OVH response:`, error);
-    return []; // Return empty, will be handled by error logic
+    console.error(`Error parsing OVH response for model ${model}:`, error);
   }
+
+  return results;
 };
 
 // Fetch single VPS model status
@@ -152,6 +194,7 @@ const fetchModelStatus = async (
 // Process status updates and queue notifications
 const processStatusUpdates = async (results: any[]) => {
   let totalChanges = 0;
+  const statusUpdates: any[] = []; // NEW: Collect updates untuk SSE
 
   for (const result of results) {
     if (result.error) continue;
@@ -166,7 +209,16 @@ const processStatusUpdates = async (results: any[]) => {
       if (updateResult.changed) {
         totalChanges++;
 
-        // Queue email notifications for status changes
+        // Collect untuk SSE broadcast - NEW!
+        statusUpdates.push({
+          model: result.model,
+          datacenter: dcStatus.datacenter,
+          status: dcStatus.status,
+          oldStatus: updateResult.oldStatus,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Queue email notifications
         const statusChange: StatusChange =
           dcStatus.status === "available"
             ? "became_available"
@@ -177,7 +229,6 @@ const processStatusUpdates = async (results: any[]) => {
           dcStatus.datacenter
         );
 
-        // Queue emails for all subscribers
         for (const subscription of subscriptions) {
           await queueEmailNotification(
             subscription.user_id,
@@ -191,6 +242,18 @@ const processStatusUpdates = async (results: any[]) => {
           `Status change: Model ${result.model} in ${dcStatus.datacenter} is now ${dcStatus.status}`
         );
       }
+    }
+  }
+
+  // NEW: Trigger SSE broadcast untuk semua changes
+  if (statusUpdates.length > 0) {
+    try {
+      await triggerSSEBroadcast(statusUpdates);
+      logger.log(
+        `✅ SSE broadcast sent for ${statusUpdates.length} status changes`
+      );
+    } catch (error) {
+      logger.error("❌ SSE broadcast failed:", error);
     }
   }
 

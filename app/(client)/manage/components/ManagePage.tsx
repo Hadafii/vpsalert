@@ -18,10 +18,10 @@ export const metadata: Metadata = {
 const ManageAccessPage = () => {
   return (
     <Layout>
-      <section className="relative py-16  px-6 min-h-screen bg-gradient-to-br from-background to-default-50 transition-colors ">
+      <section className="relative py-16  px-6 min-h-dvh bg-[#EEF6FF] dark:bg-[#000710] to-default-50 transition-colors">
         <div className="max-w-4xl mx-auto ">
           {/* Header Section */}
-          <div className="text-center mb-12 pt-28">
+          <div className="text-center mb-12 pt-24">
             <h1 className="text-3xl md:text-4xl font-bold mb-4">
               Manage Your VPS Subscriptions
             </h1>

@@ -167,20 +167,22 @@ const ManageTokenPage: React.FC<ManageTokenPageProps> = ({ params }) => {
   if (pageState.isLoading || !resolvedParams) {
     return (
       <Layout>
-        <section className="py-16 px-6 min-h-screen">
+        <section className="py-16 px-6 min-h-screen transition-colors">
           <div className="max-w-6xl mx-auto ">
-            <Card>
-              <CardBody className="p-12">
-                <div className="flex flex-col items-center justify-center space-y-4">
-                  <Spinner size="lg" />
-                  <h2 className="text-xl font-semibold">Loading Dashboard</h2>
-                  <p className="text-default-600 text-center">
-                    Please wait while we load your subscription management
-                    dashboard...
-                  </p>
-                </div>
-              </CardBody>
-            </Card>
+            <div className="pt-24">
+              <Card>
+                <CardBody className="p-12 ">
+                  <div className="flex flex-col items-center justify-center space-y-4">
+                    <Spinner size="lg" />
+                    <h2 className="text-xl font-semibold">Loading Dashboard</h2>
+                    <p className="text-default-600 text-center">
+                      Please wait while we load your subscription management
+                      dashboard...
+                    </p>
+                  </div>
+                </CardBody>
+              </Card>
+            </div>
           </div>
         </section>
       </Layout>
@@ -191,69 +193,71 @@ const ManageTokenPage: React.FC<ManageTokenPageProps> = ({ params }) => {
   if (pageState.error) {
     return (
       <Layout>
-        <section className="py-16 px-6 min-h-screen">
-          <div className="max-w-4xl mx-auto pt-28">
-            <Card>
-              <CardBody className="p-12 ">
-                <div className="text-center space-y-6">
-                  <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto">
-                    <IconExclamationCircle className="w-8 h-8 text-danger" />
-                  </div>
+        <section className="py-16 px-6 min-h-screen transition-colors">
+          <div className="max-w-4xl mx-auto">
+            <div className="pt-24">
+              <Card>
+                <CardBody className="p-12 ">
+                  <div className="text-center space-y-6">
+                    <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto">
+                      <IconExclamationCircle className="w-8 h-8 text-danger" />
+                    </div>
 
-                  <div>
-                    <h1 className="text-2xl font-bold mb-2">
-                      Dashboard Access Error
-                    </h1>
-                    <p className="text-default-600">{pageState.error}</p>
-                  </div>
+                    <div>
+                      <h1 className="text-2xl font-bold mb-2">
+                        Dashboard Access Error
+                      </h1>
+                      <p className="text-default-600">{pageState.error}</p>
+                    </div>
 
-                  {!pageState.isValidToken ? (
-                    <Alert
-                      color="danger"
-                      variant="flat"
-                      title="Invalid Management Link"
-                      description="This link may be corrupted, expired, or incorrectly formatted. Please request a new management link from the access portal."
-                    />
-                  ) : (
-                    <Alert
-                      color="warning"
-                      variant="flat"
-                      title="Temporary Error"
-                      description="This appears to be a temporary issue. Please try refreshing the page or request a new management link."
-                    />
-                  )}
-
-                  <div className="flex justify-center space-x-4">
-                    {pageState.isValidToken && (
-                      <Button
-                        color="primary"
-                        startContent={<IconRefresh className="w-4 h-4" />}
-                        onClick={handleRefresh}
-                      >
-                        Retry Loading
-                      </Button>
+                    {!pageState.isValidToken ? (
+                      <Alert
+                        color="danger"
+                        variant="flat"
+                        title="Invalid Management Link"
+                        description="This link may be corrupted, expired, or incorrectly formatted. Please request a new management link from the access portal."
+                      />
+                    ) : (
+                      <Alert
+                        color="warning"
+                        variant="flat"
+                        title="Temporary Error"
+                        description="This appears to be a temporary issue. Please try refreshing the page or request a new management link."
+                      />
                     )}
 
-                    <Button
-                      color="default"
-                      variant="bordered"
-                      startContent={<IconHome className="w-4 h-4" />}
-                      onClick={() => router.push("/manage")}
-                    >
-                      Request New Link
-                    </Button>
+                    <div className="flex justify-center space-x-4">
+                      {pageState.isValidToken && (
+                        <Button
+                          color="primary"
+                          startContent={<IconRefresh className="w-4 h-4" />}
+                          onClick={handleRefresh}
+                        >
+                          Retry Loading
+                        </Button>
+                      )}
 
-                    <Button
-                      color="default"
-                      variant="light"
-                      onClick={() => router.push("/")}
-                    >
-                      Go Home
-                    </Button>
+                      <Button
+                        color="default"
+                        variant="bordered"
+                        startContent={<IconHome className="w-4 h-4" />}
+                        onClick={() => router.push("/manage")}
+                      >
+                        Request New Link
+                      </Button>
+
+                      <Button
+                        color="default"
+                        variant="light"
+                        onClick={() => router.push("/")}
+                      >
+                        Go Home
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </CardBody>
-            </Card>
+                </CardBody>
+              </Card>
+            </div>
           </div>
         </section>
       </Layout>
@@ -264,16 +268,18 @@ const ManageTokenPage: React.FC<ManageTokenPageProps> = ({ params }) => {
   if (pageState.data) {
     return (
       <Layout>
-        <section className="py-8 px-6 min-h-screen bg-gradient-to-br from-background to-default-50">
+        <section className="py-8 px-6 min-h-dvh bg-[#EEF6FF] dark:bg-[#000710] to-default-50 transition-colors">
           <div className="max-w-6xl mx-auto">
-            <ManagementDashboard
-              user={pageState.data.user}
-              subscriptions={pageState.data.subscriptions}
-              statistics={pageState.data.statistics}
-              availableOptions={pageState.data.availableOptions}
-              unsubscribeToken={resolvedParams.token}
-              onUpdate={handleRefresh}
-            />
+            <div className="pt-24">
+              <ManagementDashboard
+                user={pageState.data.user}
+                subscriptions={pageState.data.subscriptions}
+                statistics={pageState.data.statistics}
+                availableOptions={pageState.data.availableOptions}
+                unsubscribeToken={resolvedParams.token}
+                onUpdate={handleRefresh}
+              />
+            </div>
           </div>
         </section>
       </Layout>

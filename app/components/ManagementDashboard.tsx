@@ -115,10 +115,8 @@ export default function ManagementDashboard({
   });
 
   // New subscription state
-  const [newSubscription, setNewSubscription] = useState({
-    model: "",
-    datacenter: "",
-  });
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedDatacenter, setSelectedDatacenter] = useState<string>("");
 
   // Modal controls
   const {
@@ -180,6 +178,8 @@ export default function ManagementDashboard({
     UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
     DE: { name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
     FR: { name: "Roubaix", country: "France", flag: "🇫🇷" },
+    SGP: { name: "Singapore", country: "Singapore", flag: "🇸🇬" },
+    SYD: { name: "Sydney", country: "Australia", flag: "🇦🇺" },
   };
 
   // API call helper
@@ -254,7 +254,7 @@ export default function ManagementDashboard({
 
   // Add new subscription
   const handleAddSubscription = useCallback(async () => {
-    if (!newSubscription.model || !newSubscription.datacenter) {
+    if (!selectedModel || !selectedDatacenter) {
       setActionState({
         isLoading: false,
         error: "Please select both model and datacenter",
@@ -265,15 +265,16 @@ export default function ManagementDashboard({
 
     const success = await makeAPICall("add subscription", {
       action: "add",
-      model: parseInt(newSubscription.model),
-      datacenter: newSubscription.datacenter,
+      model: parseInt(selectedModel),
+      datacenter: selectedDatacenter,
     });
 
     if (success) {
-      setNewSubscription({ model: "", datacenter: "" });
+      setSelectedModel("");
+      setSelectedDatacenter("");
       onAddModalChange();
     }
-  }, [newSubscription, makeAPICall, onAddModalChange]);
+  }, [selectedModel, selectedDatacenter, makeAPICall, onAddModalChange]);
 
   // Delete all subscriptions
   const handleDeleteAllSubscriptions = useCallback(async () => {
@@ -329,6 +330,29 @@ export default function ManagementDashboard({
     return { availableModels, availableDatacentersForModel };
   }, [subscriptions.active, availableOptions]);
 
+  // FIXED: Handler untuk model selection
+  const handleModelSelectionChange = useCallback(
+    (keys: "all" | Set<React.Key>) => {
+      const selected = Array.from(keys)[0] as string;
+      setSelectedModel(selected);
+      setSelectedDatacenter(""); // Reset datacenter when model changes
+    },
+    []
+  );
+
+  // FIXED: Handler untuk datacenter selection
+  const handleDatacenterSelectionChange = useCallback(
+    (keys: "all" | Set<React.Key>) => {
+      const selected = Array.from(keys)[0] as string;
+      setSelectedDatacenter(selected);
+    },
+    []
+  );
+
+  // FIXED: Get current values for validation
+  const currentModelValue = selectedModel;
+  const currentDatacenterValue = selectedDatacenter;
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -338,7 +362,7 @@ export default function ManagementDashboard({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 transition-colors">
       {/* User Info Header */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -563,7 +587,7 @@ export default function ManagementDashboard({
         </CardBody>
       </Card>
 
-      {/* Add Subscription Modal */}
+      {/* Add Subscription Modal - Alternative approach */}
       <Modal isOpen={isAddModalOpen} onOpenChange={onAddModalChange}>
         <ModalContent>
           {(onClose) => (
@@ -573,65 +597,76 @@ export default function ManagementDashboard({
               </ModalHeader>
               <ModalBody>
                 <div className="space-y-4">
+                  {/* VPS Model Select - Using ref approach */}
                   <Select
+                    className="max-w-full"
+                    items={availableNewOptions.availableModels.map(
+                      (modelId) => ({
+                        key: modelId.toString(),
+                        label: `${VPS_MODELS[modelId].name} - ${VPS_MODELS[modelId].price}`,
+                      })
+                    )}
                     label="VPS Model"
                     placeholder="Select a VPS model"
                     selectedKeys={
-                      newSubscription.model ? [newSubscription.model] : []
+                      selectedModel ? [selectedModel.toString()] : []
                     }
+                    selectionMode="single"
+                    disallowEmptySelection
                     onSelectionChange={(keys) => {
-                      const selectedModel =
-                        Array.from(keys)[0]?.toString() || "";
-                      setNewSubscription((prev) => ({
-                        ...prev,
-                        model: selectedModel,
-                        datacenter: "",
-                      }));
+                      const selected = Array.from(keys)[0]?.toString() || "";
+                      setSelectedModel(selected);
+                      setSelectedDatacenter("");
                     }}
                   >
-                    {availableNewOptions.availableModels.map((modelId) => (
-                      <SelectItem key={modelId.toString()}>
-                        <div className="flex items-center justify-between w-full">
-                          <span>{VPS_MODELS[modelId].name}</span>
-                          <span className="text-small text-default-500">
-                            {VPS_MODELS[modelId].price}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {(item) => (
+                      <SelectItem key={item.key}>{item.label}</SelectItem>
+                    )}
                   </Select>
 
+                  {/* Show selected model */}
+                  {/* {selectedModel && (
+                    <div className="text-sm text-success">
+                      Selected Model:{" "}
+                      {VPS_MODELS[parseInt(selectedModel)]?.name}
+                    </div>
+                  )} */}
+
+                  {/* Datacenter Select */}
                   <Select
+                    className="max-w-full"
+                    items={availableNewOptions
+                      .availableDatacentersForModel(selectedModel || "")
+                      .map((dc) => ({
+                        key: dc,
+                        label: `${DATACENTER_INFO[dc]?.flag || ""} ${dc} - ${DATACENTER_INFO[dc]?.name || ""}`,
+                      }))}
                     label="Datacenter"
                     placeholder="Select a datacenter"
                     selectedKeys={
-                      newSubscription.datacenter
-                        ? [newSubscription.datacenter]
-                        : []
+                      selectedDatacenter ? [selectedDatacenter] : []
                     }
+                    selectionMode="single"
+                    disallowEmptySelection
+                    isDisabled={!selectedModel}
                     onSelectionChange={(keys) => {
-                      const selectedDatacenter =
-                        Array.from(keys)[0]?.toString() || "";
-                      setNewSubscription((prev) => ({
-                        ...prev,
-                        datacenter: selectedDatacenter,
-                      }));
+                      const selected = Array.from(keys)[0]?.toString() || "";
+                      setSelectedDatacenter(selected);
                     }}
-                    isDisabled={!newSubscription.model}
                   >
-                    {availableNewOptions
-                      .availableDatacentersForModel(newSubscription.model)
-                      .map((datacenter) => (
-                        <SelectItem key={datacenter}>
-                          <div className="flex items-center space-x-2">
-                            <span>{DATACENTER_INFO[datacenter]?.flag}</span>
-                            <span>
-                              {datacenter} - {DATACENTER_INFO[datacenter]?.name}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
+                    {(item) => (
+                      <SelectItem key={item.key}>{item.label}</SelectItem>
+                    )}
                   </Select>
+
+                  {/* Show selected datacenter */}
+                  {/* {selectedDatacenter && (
+                    <div className="text-sm text-success">
+                      Selected Datacenter:{" "}
+                      {DATACENTER_INFO[selectedDatacenter]?.flag}{" "}
+                      {selectedDatacenter}
+                    </div>
+                  )} */}
                 </div>
               </ModalBody>
               <ModalFooter>
@@ -642,9 +677,7 @@ export default function ManagementDashboard({
                   color="primary"
                   onPress={handleAddSubscription}
                   isLoading={actionState.isLoading}
-                  isDisabled={
-                    !newSubscription.model || !newSubscription.datacenter
-                  }
+                  isDisabled={!selectedModel || !selectedDatacenter}
                 >
                   Add Subscription
                 </Button>

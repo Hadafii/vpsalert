@@ -6,7 +6,11 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint --fix"
+    "lint": "eslint --fix",
+    "test:api": "curl $NEXT_PUBLIC_APP_URL/api/status | jq .",
+    "test:sse": "curl -N $NEXT_PUBLIC_APP_URL/api/sse/status",
+    "test:cron": "curl \"$NEXT_PUBLIC_APP_URL/api/cron/poll-ovh?secret=$CRON_SECRET\"",
+    "test:diagnostics": "curl $NEXT_PUBLIC_APP_URL/api/test/diagnostics | jq ."
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

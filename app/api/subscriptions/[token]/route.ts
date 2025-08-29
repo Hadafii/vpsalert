@@ -33,7 +33,17 @@ const BatchUpdateSchema = z.object({
     .max(20), // Max 20 operations at once
 });
 
-const validDatacenters = ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR"];
+const validDatacenters = [
+  "GRA",
+  "SBG",
+  "BHS",
+  "WAW",
+  "UK",
+  "DE",
+  "FR",
+  "SGP",
+  "SYD",
+];
 
 // ====================================
 // HELPER FUNCTIONS

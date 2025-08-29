@@ -5,7 +5,9 @@ import { logger } from "@/lib/logs";
 import {
   getStatusChanges,
   initializeStatusSnapshot,
+  sseConnections,
 } from "@/lib/sse-broadcast";
+
 // ====================================
 // CONNECTION MANAGEMENT
 // ====================================
@@ -216,7 +218,7 @@ export async function GET(request: NextRequest) {
   // Create readable stream
   const stream = new ReadableStream({
     start(controller) {
-      // Store connection
+      // Store connection - UPDATE INI:
       const connection: SSEConnection = {
         id: connectionId,
         controller,
@@ -224,6 +226,9 @@ export async function GET(request: NextRequest) {
         lastPing: Date.now(),
         connected: true,
       };
+
+      // ADD INI: Store di shared connections untuk broadcast
+      sseConnections.set(connectionId, connection);
       connections.set(connectionId, connection);
 
       // Send initial connection confirmation
@@ -276,7 +281,11 @@ export async function GET(request: NextRequest) {
       request.signal.addEventListener("abort", () => {
         logger.log(`SSE connection closed: ${connectionId}`);
         connection.connected = false;
+
+        // UPDATE: Remove dari both stores
         connections.delete(connectionId);
+        sseConnections.delete(connectionId); // ADD INI
+
         clearInterval(heartbeatInterval);
 
         try {

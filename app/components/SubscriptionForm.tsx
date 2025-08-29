@@ -107,6 +107,9 @@ const DEFAULT_DATACENTERS: DatacenterInfo[] = [
   { code: "UK", name: "London", country: "United Kingdom", flag: "🇬🇧" },
   { code: "DE", name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
   { code: "FR", name: "Roubaix", country: "France", flag: "🇫🇷" },
+  // NEW: Add Singapore and Sydney
+  { code: "SGP", name: "Singapore", country: "Singapore", flag: "🇸🇬" },
+  { code: "SYD", name: "Sydney", country: "Australia", flag: "🇦🇺" },
 ];
 
 export default function SubscriptionForm({

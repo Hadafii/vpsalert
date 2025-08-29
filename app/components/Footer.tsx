@@ -9,8 +9,9 @@ import {
   IconServer,
   IconShield,
   IconBolt,
-  IconHeart,
+  IconHeartFilled,
 } from "@tabler/icons-react";
+import Image from "next/image";
 
 interface FooterProps {
   className?: string;
@@ -23,18 +24,28 @@ const Footer: React.FC<FooterProps> = ({ className = "" }) => {
     <footer
       className={`bg-content1/50 backdrop-blur-sm border-t border-divider ${className}`}
     >
-      <div className="max-w-7xl mx-auto px-6 py-12">
+      <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Main Footer Content */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
           {/* Brand Section */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
-              <div className="p-1.5 bg-primary/10 rounded-lg">
-                <IconServer className="w-5 h-5 text-primary" />
+              <div className="hidden dark:flex">
+                <Image
+                  src="/assets/logotext.svg"
+                  alt="VPS Alert Logo"
+                  width={200}
+                  height={120}
+                />
               </div>
-              <span className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                VPS Alert
-              </span>
+              <div className="flex dark:hidden">
+                <Image
+                  src="/assets/logotextdark.svg"
+                  alt="VPS Alert Logo"
+                  width={200}
+                  height={120}
+                />
+              </div>
             </div>
             <p className="text-small text-default-600 leading-relaxed">
               Real-time monitoring for OVH VPS availability across all
@@ -135,7 +146,17 @@ const Footer: React.FC<FooterProps> = ({ className = "" }) => {
             <div className="space-y-2">
               <p className="text-tiny text-default-500">Datacenters:</p>
               <div className="flex flex-wrap gap-1">
-                {["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR"].map((dc) => (
+                {[
+                  "GRA",
+                  "SBG",
+                  "BHS",
+                  "WAW",
+                  "UK",
+                  "DE",
+                  "FR",
+                  "SGP",
+                  "SYD",
+                ].map((dc) => (
                   <span
                     key={dc}
                     className="text-tiny text-default-600 bg-default-100 px-1.5 py-0.5 rounded"
@@ -156,8 +177,15 @@ const Footer: React.FC<FooterProps> = ({ className = "" }) => {
           <div className="flex items-center space-x-4">
             <p className="text-small text-default-500">
               © {currentYear} VPS Alert. Made with{" "}
-              <IconHeart className="inline w-3.5 h-3.5 text-danger-500 mx-1" />{" "}
-              for the community.
+              <IconHeartFilled className="inline w-4 h-4 text-blue-600" /> by{" "}
+              <Link
+                href="https://dafiutomo.com"
+                className="text-blue-600 font-medium text-small "
+                underline="hover"
+                target="_blank"
+              >
+                Dafi Utomo
+              </Link>
             </p>
           </div>
 

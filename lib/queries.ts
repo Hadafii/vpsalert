@@ -1,5 +1,6 @@
 // lib/queries.ts
 import { query, queryRow, insert, update, transaction } from "./db";
+import logger from "./logs";
 
 // ====================================
 // TYPE DEFINITIONS
@@ -189,19 +190,38 @@ export const getOrCreateUser = async (email: string): Promise<User> => {
 
 // Verify user email
 export const verifyUser = async (token: string): Promise<User | null> => {
-  const sql = `
-    UPDATE users 
-    SET email_verified = 1, verification_token = NULL
-    WHERE verification_token = ?
-  `;
-  const affectedRows = await update(sql, [token]);
+  return await transaction(async (connection) => {
+    try {
+      // Check if user exists with this token
+      const [existingRows] = (await connection.execute(
+        "SELECT * FROM users WHERE verification_token = ? AND email_verified = 0",
+        [token]
+      )) as [any[], any];
 
-  if (affectedRows === 0) return null;
+      if (existingRows.length === 0) {
+        // Token not found or already verified
+        return null;
+      }
 
-  return await queryRow<User>(
-    "SELECT * FROM users WHERE verification_token IS NULL AND email_verified = 1",
-    []
-  );
+      const user = existingRows[0] as User;
+
+      // Update user as verified
+      await connection.execute(
+        "UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?",
+        [user.id]
+      );
+
+      // Return updated user data
+      return {
+        ...user,
+        email_verified: true,
+        verification_token: null,
+      };
+    } catch (error) {
+      logger.error("Database error in verifyUser:", error);
+      throw error;
+    }
+  });
 };
 
 // Get user by unsubscribe token
@@ -384,7 +404,7 @@ export const getVPSModels = (): number[] => {
 
 // Get datacenters
 export const getDatacenters = (): string[] => {
-  return ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR"]; // Adjust based on OVH datacenters you monitor
+  return ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR", "SGP", "SYD"]; // Adjust based on OVH datacenters you monitor
 };
 
 // ====================================
