@@ -65,7 +65,7 @@ export default function Navbar() {
         from-[#EEF6FF] via-[#EEF6FF]/80 via-30% to-transparent 
         transition-colors`}
     >
-      <NavbarBrand>
+      <NavbarBrand as="a" href="/" className="pl-2 md:pl-0">
         <div className="hidden dark:flex">
           <Image
             alt="VPSALERT"
