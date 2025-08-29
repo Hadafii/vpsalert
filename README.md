@@ -1,53 +1,64 @@
-# Next.js & HeroUI Template
+<div align="center">
+  <br><br>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="public/assets/logotextdark.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="public/assets/logotext.svg">
+    <img src="public/assets/logotext.svg" alt="VPSAlert logo" width="600">
+  </picture>
+  <br><br>
+</div>
 
-This is a template for creating applications using Next.js 14 (app directory) and HeroUI (v2).
+<div align="center">
+  <h3>🚀 VPSAlert</h3>
+  <p>Realtime Monitoring for OVH VPS Availability with Instant Notifications</p>
+</div>
 
-[Try it on CodeSandbox](https://githubbox.com/heroui-inc/heroui/next-app-template)
+<br />
 
-## Technologies Used
+<div align="center">
+  <a href="https://github.com/Hadafii/vpsalert/stargazers">
+    <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/Hadafii/vpsalert?style=for-the-badge&color=blueviolet">
+  </a>
+  <a href="https://github.com/yourname/vpsalert/blob/main/LICENSE">
+    <img alt="License" src="https://img.shields.io/github/license/Hadafii/vpsalert?style=for-the-badge&color=magenta">
+  </a>
+</div>
 
-- [Next.js 14](https://nextjs.org/docs/getting-started)
-- [HeroUI v2](https://heroui.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Tailwind Variants](https://tailwind-variants.org)
-- [TypeScript](https://www.typescriptlang.org/)
-- [Framer Motion](https://www.framer.com/motion/)
-- [next-themes](https://github.com/pacocoursey/next-themes)
+---
 
-## How to Use
+## 📖 About
 
-### Use the template with create-next-app
+**VPSAlert** was originally a personal project to avoid refreshing OVH’s site over and over.  
+I decided to share it publicly so that anyone who’s hunting for cheap OVH VPS can also benefit.
 
-To create a new project based on this template using `create-next-app`, run the following command:
+I’m still a junior developer, so this project is a mix of learning and building something useful.  
+If you notice bugs or have ideas for improvement, I’d love your feedback 🙏
+
+---
+
+## 🛠 Tech Stack
+
+- **Frontend** → Next.js 15, React 18, Heroui, Tailwind, Framer Motion, GSAP
+- **Backend** → Next.js API Routes, MySQL (mysql2), Nodemailer, Zod
+- **Realtime** → Server-Sent Events (SSE)
+- **Validation & Security** → Zod, Validator, Sanitization
+
+---
+
+## 📦 Installation
 
 ```bash
-npx create-next-app -e https://github.com/heroui-inc/next-app-template
-```
+# clone repo
+git clone https://github.com/yourname/vpsalert.git
 
-### Install dependencies
+cd vpsalert
 
-You can use one of them `npm`, `yarn`, `pnpm`, `bun`, Example using `npm`:
-
-```bash
+# install dependencies
 npm install
-```
 
-### Run the development server
+# setup environment
+cp .env.example .env.local
 
-```bash
+# run dev
 npm run dev
 ```
-
-### Setup pnpm (optional)
-
-If you are using `pnpm`, you need to add the following code to your `.npmrc` file:
-
-```bash
-public-hoist-pattern[]=*@heroui/*
-```
-
-After modifying the `.npmrc` file, you need to run `pnpm install` again to ensure that the dependencies are installed correctly.
-
-## License
-
-Licensed under the [MIT license](https://github.com/heroui-inc/next-app-template/blob/main/LICENSE).
