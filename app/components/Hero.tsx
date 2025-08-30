@@ -109,6 +109,12 @@ export default function Hero() {
               dark:text-white font-semibold transition-colors"
                   radius="full"
                   endContent={<IconHeartbeat className="w-5 h-5" />}
+                  onClick={() => {
+                    const el = document.getElementById("monitor-section");
+                    if (el) {
+                      el.scrollIntoView({ behavior: "smooth" });
+                    }
+                  }}
                 >
                   Start Monitoring
                 </Button>
