@@ -279,7 +279,7 @@ const VPSModelCard: React.FC<{
     if (hasAvailability) {
       return "border-blue-200/60 dark:border-blue-500/30";
     }
-    return "border-blue-200/60 dark:border-blue-500/30";
+    return "border-none";
   };
 
   const handleSubscribe = (datacenter: string) => {
@@ -314,7 +314,9 @@ const VPSModelCard: React.FC<{
   const borderClass = getCategoryBorder();
 
   return (
-    <div className="relative hover:scale-105 transition-all">
+    <div
+      className={`relative  transition-all ${hasAvailability ? "hover:scale-105" : ""}`}
+    >
       {/* Popular/Featured Badge */}
       {model.availableCount > 3 && (
         <div className="absolute -top-3 left-0 right-0 mx-auto w-fit z-10">
@@ -331,13 +333,13 @@ const VPSModelCard: React.FC<{
       )}
 
       <Card
-        className={`h-full backdrop-blur-xl bg-white/5 dark:bg-slate-800/40 shadow-2xl 
-          border-2 ${borderClass} ${hasAvailability ? "" : "opacity-60 grayscale"}
+        className={`h-full backdrop-blur-xl bg-white/5 dark:bg-black/5 shadow-2xl 
+          border-2 ${borderClass} }
           hover:shadow-3xl transition-all duration-500 overflow-hidden relative group`}
       >
         {/* Gradient Background Overlay */}
         <div
-          className={`absolute inset-0 bg-gradient-to-br ${gradientClass} pointer-events-none transition-all duration-500 group-hover:opacity-80`}
+          className={`absolute inset-0 bg-gradient-to-br ${gradientClass}pointer-events-none transition-all duration-500 group-hover:opacity-80`}
         />
 
         {/* Status Badge */}
@@ -361,7 +363,7 @@ const VPSModelCard: React.FC<{
 
         <CardBody className="p-6 relative z-10 flex flex-col justify-between h-full">
           {/* Header Section */}
-          <div>
+          <div className={`${hasAvailability ? "" : "opacity-60 grayscale"}`}>
             <div className="relative mb-4">
               <div className="absolute left-0 top-0">
                 <div
@@ -485,7 +487,7 @@ const VPSModelCard: React.FC<{
           </div>
 
           {/* Action Button */}
-          <div className="space-y-3">
+          <div className="space-y-3 ">
             {hasAvailability ? (
               <Button
                 className={`w-full bg-gradient-to-tl from-sky-200 via-blue-100 to-indigo-200 
@@ -504,7 +506,12 @@ const VPSModelCard: React.FC<{
                 className={`w-full font-semibold backdrop-blur-sm transition-all duration-300 border-2 border-${categoryColor} hover:bg-${categoryColor}/10`}
                 color={categoryColor}
                 endContent={<IconBell className="w-4 h-4" />}
-                onClick={() => onSubscribe?.(model.model, "")}
+                onClick={() => {
+                  const el = document.getElementById("subscribe-form");
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth" });
+                  }
+                }}
                 size="lg"
                 variant="bordered"
               >
@@ -704,7 +711,7 @@ const Monitor: React.FC<MonitorProps> = () => {
 
       {/* Newsletter/Subscription Section */}
       <div className="max-w-4xl mx-auto text-center mt-16">
-        <h2 className="text-2xl md:text-3xl font-bold mb-4">
+        <h2 className="text-2xl md:text-3xl font-bold mb-4" id="subscribe-form">
           Get Notified When VPS Becomes Available
         </h2>
         <p className="text-lg text-default-600 mb-8">

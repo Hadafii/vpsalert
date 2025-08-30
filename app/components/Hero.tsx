@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import Prism from "@/components/ui/Prism";
+// import Prism from "@/components/ui/Prism";
 import AnimatedContent from "@/components/ui/AnimatedContent";
 import { Card, Button } from "@heroui/react";
 import GlareHover from "@/components/ui/GlareHover";
@@ -37,9 +37,9 @@ export default function Hero() {
   ];
   return (
     <>
-      <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
+      <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[#EEF6FF] dark:bg-[#000710] transition-colors">
         <div className="absolute inset-0 opacity-60 ">
-          <Prism
+          {/* <Prism
             animationType="3drotate"
             timeScale={0.3}
             height={2}
@@ -49,7 +49,7 @@ export default function Hero() {
             colorFrequency={2}
             noise={0}
             glow={1}
-          />
+          /> */}
         </div>
         <div className="relative z-20 max-w-6xl mx-auto px-6 text-center pt-16 md:pt-12 lg:pt-0">
           <div className="flex items-center justify-center mb-6">
