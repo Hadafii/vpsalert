@@ -1,4 +1,3 @@
-// app/api/subscriptions/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   getOrCreateUser,
@@ -10,15 +9,12 @@ import { sendVerificationEmail, isValidEmail } from "@/lib/email";
 import { checkRateLimit, getRateLimitStatus } from "@/lib/db-rate-limiter";
 import { z } from "zod";
 import { logger } from "@/lib/logs";
-// ====================================
-// VALIDATION SCHEMAS
-// ====================================
 
 const CreateSubscriptionSchema = z.object({
   email: z.string().email("Invalid email format").max(320, "Email too long"),
   model: z.number().int().min(1).max(6).optional(),
   datacenter: z.string().min(2).max(5).toUpperCase().optional(),
-  // Optional: allow multiple subscriptions in one request
+
   subscriptions: z
     .array(
       z.object({
@@ -41,12 +37,7 @@ const validDatacenters = [
   "SYD",
 ];
 
-// ====================================
-// HELPER FUNCTIONS
-// ====================================
-
 const getClientIP = (request: NextRequest): string => {
-  // Try various headers for IP detection
   return (
     request.headers.get("cf-connecting-ip") ||
     request.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -56,7 +47,6 @@ const getClientIP = (request: NextRequest): string => {
 };
 
 const validateSubscriptionData = (data: any) => {
-  // Validate main subscription
   if (data.model && data.datacenter) {
     if (!getVPSModels().includes(data.model)) {
       throw new Error(`Invalid VPS model: ${data.model}`);
@@ -67,7 +57,6 @@ const validateSubscriptionData = (data: any) => {
     }
   }
 
-  // Validate additional subscriptions
   if (data.subscriptions && Array.isArray(data.subscriptions)) {
     for (const sub of data.subscriptions) {
       if (!getVPSModels().includes(sub.model)) {
@@ -81,28 +70,20 @@ const validateSubscriptionData = (data: any) => {
       }
     }
 
-    // Limit number of subscriptions per request
     if (data.subscriptions.length > 20) {
       throw new Error("Too many subscriptions in single request (max 20)");
     }
   }
 };
 
-// ====================================
-// API ENDPOINTS
-// ====================================
-
-// POST /api/subscriptions - Create new subscription(s)
 export async function POST(request: NextRequest) {
   try {
     const clientIP = getClientIP(request);
 
-    // Use database-backed rate limiting
-    const allowed = await checkRateLimit(clientIP, 5, 10); // 10 requests per 5 minutes
+    const allowed = await checkRateLimit(clientIP, 5, 10);
     if (!allowed) {
       logger.warn(`Rate limit exceeded for IP: ${clientIP}`);
 
-      // Get rate limit status for better error response
       const rateStatus = await getRateLimitStatus(clientIP, 5);
 
       return NextResponse.json(
@@ -122,14 +103,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse and validate request body
     const body = await request.json();
     const validatedData = CreateSubscriptionSchema.parse(body);
 
-    // Additional custom validation
     validateSubscriptionData(validatedData);
 
-    // Ensure we have at least one subscription method
     const hasDirectSubscription =
       validatedData.model && validatedData.datacenter;
     const hasSubscriptionsArray =
@@ -150,13 +128,10 @@ export async function POST(request: NextRequest) {
       `New subscription request from ${clientIP} for ${validatedData.email}`
     );
 
-    // Get or create user
     const user = await getOrCreateUser(validatedData.email);
 
-    // Prepare subscriptions to create
     const subscriptionsToCreate = [];
 
-    // Add main subscription if provided
     if (validatedData.model && validatedData.datacenter) {
       subscriptionsToCreate.push({
         model: validatedData.model,
@@ -164,7 +139,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Add additional subscriptions
     if (validatedData.subscriptions && validatedData.subscriptions.length > 0) {
       subscriptionsToCreate.push(
         ...validatedData.subscriptions.map((sub) => ({
@@ -174,7 +148,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Remove duplicates
     const uniqueSubscriptions = subscriptionsToCreate.filter(
       (sub, index, arr) =>
         arr.findIndex(
@@ -193,7 +166,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create subscriptions
     const createdSubscriptions = [];
     for (const subscription of uniqueSubscriptions) {
       try {
@@ -208,11 +180,9 @@ export async function POST(request: NextRequest) {
           `Failed to create subscription for ${subscription.model}-${subscription.datacenter}:`,
           error
         );
-        // Continue with other subscriptions
       }
     }
 
-    // Send verification email if user is not verified
     let emailSent = false;
     if (!user.email_verified && user.verification_token) {
       try {
@@ -231,7 +201,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Prepare response
     const responseData = {
       success: true,
       message:
@@ -296,7 +265,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET /api/subscriptions - Get subscription info (requires token or email)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -323,8 +291,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // For now, we'll implement a simple lookup by email
-    // In production, you might want to require token-based access for security
     if (email) {
       const user = await getOrCreateUser(email);
       const subscriptions = await getUserSubscriptions(user.id);
@@ -350,7 +316,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // TODO: Implement token-based lookup for more secure access
     return NextResponse.json(
       {
         error: "Not implemented",
@@ -372,7 +337,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// OPTIONS /api/subscriptions - CORS support
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,

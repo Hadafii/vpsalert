@@ -1,13 +1,8 @@
-// lib/security.ts
 import { z } from "zod";
 import DOMPurify from "isomorphic-dompurify";
 import validator from "validator";
 import { NextRequest } from "next/server";
 import crypto from "crypto";
-
-// ====================================
-// INPUT VALIDATION SCHEMAS
-// ====================================
 
 export const EmailSchema = z
   .string()
@@ -38,47 +33,29 @@ export const TokenSchema = z
   .length(32, "Token must be 32 characters")
   .regex(/^[a-f0-9]{32}$/, "Invalid token format");
 
-// ====================================
-// REQUEST SANITIZATION
-// ====================================
-
-/**
- * Sanitize HTML content to prevent XSS attacks
- */
 export function sanitizeHtml(input: string): string {
   return DOMPurify.sanitize(input, {
-    ALLOWED_TAGS: [], // No HTML tags allowed
+    ALLOWED_TAGS: [],
     ALLOWED_ATTR: [],
   });
 }
 
-/**
- * Sanitize and validate email address
- */
 export function sanitizeEmail(email: string): string {
-  // Remove whitespace and convert to lowercase
   const cleaned = validator.normalizeEmail(email.trim().toLowerCase()) || "";
 
-  // Additional sanitization
   const sanitized = sanitizeHtml(cleaned);
 
-  // Validate with our schema
   EmailSchema.parse(sanitized);
 
   return sanitized;
 }
 
-/**
- * Sanitize string input (remove HTML, limit length)
- */
 export function sanitizeString(
   input: string,
   maxLength: number = 1000
 ): string {
-  // Remove HTML and trim
   const sanitized = sanitizeHtml(input.trim());
 
-  // Limit length
   if (sanitized.length > maxLength) {
     throw new Error(`Input too long (max ${maxLength} characters)`);
   }
@@ -86,28 +63,17 @@ export function sanitizeString(
   return sanitized;
 }
 
-/**
- * Validate and sanitize VPS model
- */
 export function sanitizeVPSModel(model: any): number {
-  // Convert to number if it's a string
   const numModel = typeof model === "string" ? parseInt(model, 10) : model;
 
-  // Validate
   return VPSModelSchema.parse(numModel);
 }
 
-/**
- * Validate and sanitize datacenter code
- */
 export function sanitizeDatacenter(datacenter: any): string {
-  // Convert to string and uppercase
   const strDatacenter = String(datacenter).toUpperCase().trim();
 
-  // Sanitize HTML
   const sanitized = sanitizeHtml(strDatacenter);
 
-  // Validate
   return DatacenterSchema.parse(sanitized);
 }
 
@@ -115,10 +81,8 @@ export function sanitizeDatacenter(datacenter: any): string {
  * Validate and sanitize token
  */
 export const sanitizeToken = (token: string): string => {
-  // Clean and validate verification token
   const cleaned = token.trim().toLowerCase();
 
-  // Must be exactly 32 character hex string
   if (!/^[a-f0-9]{32}$/.test(cleaned)) {
     throw new Error("Invalid token format");
   }
@@ -126,16 +90,7 @@ export const sanitizeToken = (token: string): string => {
   return cleaned;
 };
 
-// ====================================
-// SQL INJECTION PREVENTION
-// ====================================
-
-/**
- * Escape SQL string values (additional layer of protection)
- * Note: We primarily use parameterized queries, but this adds extra safety
- */
 export function escapeSQLString(input: string): string {
-  // Replace dangerous characters
   return input
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
@@ -145,15 +100,11 @@ export function escapeSQLString(input: string): string {
     .replace(/\x1a/g, "\\Z");
 }
 
-/**
- * Validate SQL query parameters to prevent injection
- */
 export function validateSQLParams(params: any[]): any[] {
   return params.map((param) => {
     if (typeof param === "string") {
-      // Sanitize string parameters
       const sanitized = sanitizeString(param, 1000);
-      // Additional SQL character validation
+
       if (
         sanitized.includes("--") ||
         sanitized.includes("/*") ||
@@ -165,7 +116,6 @@ export function validateSQLParams(params: any[]): any[] {
     }
 
     if (typeof param === "number") {
-      // Validate numbers
       if (
         !Number.isFinite(param) ||
         param < -2147483648 ||
@@ -180,14 +130,9 @@ export function validateSQLParams(params: any[]): any[] {
       return param;
     }
 
-    // For other types, convert to string and sanitize
     return sanitizeString(String(param), 1000);
   });
 }
-
-// ====================================
-// RATE LIMITING
-// ====================================
 
 interface RateLimitEntry {
   count: number;
@@ -203,7 +148,6 @@ class RateLimiter {
     private windowMs: number = 300000,
     private maxRequests: number = 10
   ) {
-    // Clean up expired entries every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanup(), 300000);
   }
 
@@ -223,7 +167,6 @@ class RateLimiter {
     const entry = this.store.get(identifier);
 
     if (!entry || now > entry.resetTime) {
-      // New window
       this.store.set(identifier, {
         count: 1,
         resetTime: now + this.windowMs,
@@ -232,12 +175,10 @@ class RateLimiter {
     }
 
     if (entry.count >= this.maxRequests) {
-      // Rate limit exceeded
       entry.blocked = true;
       return false;
     }
 
-    // Increment counter
     entry.count++;
     return true;
   }
@@ -260,20 +201,11 @@ class RateLimiter {
   }
 }
 
-// Global rate limiters
-export const subscriptionRateLimiter = new RateLimiter(300000, 10); // 10 requests per 5 minutes
-export const emailRateLimiter = new RateLimiter(3600000, 5); // 5 emails per hour
-export const generalRateLimiter = new RateLimiter(60000, 100); // 100 requests per minute
+export const subscriptionRateLimiter = new RateLimiter(300000, 10);
+export const emailRateLimiter = new RateLimiter(3600000, 5);
+export const generalRateLimiter = new RateLimiter(60000, 100);
 
-// ====================================
-// REQUEST SECURITY
-// ====================================
-
-/**
- * Extract real IP address from request headers
- */
 export function getClientIP(request: NextRequest): string {
-  // Try various headers in order of preference
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
     return forwarded.split(",")[0].trim();
@@ -287,9 +219,6 @@ export function getClientIP(request: NextRequest): string {
   );
 }
 
-/**
- * Validate request origin and prevent CSRF
- */
 export function validateOrigin(
   request: NextRequest,
   allowedOrigins: string[]
@@ -298,7 +227,6 @@ export function validateOrigin(
   const referer = request.headers.get("referer");
 
   if (!origin && !referer) {
-    // Allow requests without origin/referer for API clients
     return true;
   }
 
@@ -327,23 +255,16 @@ export function validateCronRequest(
     return false;
   }
 
-  // Use constant-time comparison to prevent timing attacks
   return crypto.timingSafeEqual(
     new Uint8Array(Buffer.from(providedSecret)),
     new Uint8Array(Buffer.from(secret))
   );
 }
 
-/**
- * Generate secure random token
- */
 export function generateSecureToken(length: number = 32): string {
   return crypto.randomBytes(length / 2).toString("hex");
 }
 
-/**
- * Hash sensitive data (one-way)
- */
 export function hashData(data: string, salt?: string): string {
   const actualSalt = salt || crypto.randomBytes(16).toString("hex");
   const hash = crypto.createHmac("sha256", actualSalt);
@@ -351,25 +272,16 @@ export function hashData(data: string, salt?: string): string {
   return hash.digest("hex");
 }
 
-// ====================================
-// CONTENT SECURITY
-// ====================================
-
-/**
- * Validate file upload (future use)
- */
 export function validateFileUpload(
   filename: string,
   mimetype: string,
   size: number,
-  maxSize: number = 1024 * 1024 // 1MB
+  maxSize: number = 1024 * 1024
 ): boolean {
-  // Validate file size
   if (size > maxSize) {
     throw new Error(`File too large (max ${maxSize} bytes)`);
   }
 
-  // Validate filename
   const sanitizedName = sanitizeString(filename, 255);
   if (
     sanitizedName.includes("..") ||
@@ -379,7 +291,6 @@ export function validateFileUpload(
     throw new Error("Invalid filename");
   }
 
-  // Validate mimetype (whitelist)
   const allowedTypes = ["text/plain", "application/json", "text/csv"];
   if (!allowedTypes.includes(mimetype)) {
     throw new Error("File type not allowed");
@@ -388,21 +299,14 @@ export function validateFileUpload(
   return true;
 }
 
-// ====================================
-// SECURITY HEADERS
-// ====================================
-
 export function getSecurityHeaders(): Record<string, string> {
   return {
-    // Prevent XSS attacks
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "X-XSS-Protection": "1; mode=block",
 
-    // HTTPS enforcement
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 
-    // Content Security Policy
     "Content-Security-Policy": [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
@@ -415,21 +319,12 @@ export function getSecurityHeaders(): Record<string, string> {
       "frame-src 'none'",
     ].join("; "),
 
-    // Referrer Policy
     "Referrer-Policy": "strict-origin-when-cross-origin",
 
-    // Permissions Policy
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   };
 }
 
-// ====================================
-// ERROR SANITIZATION
-// ====================================
-
-/**
- * Sanitize error messages for public consumption
- */
 export function sanitizeError(
   error: any,
   isProduction: boolean = true
@@ -438,7 +333,6 @@ export function sanitizeError(
     return String(error.message || error);
   }
 
-  // In production, return generic messages for security
   const genericMessages: Record<string, string> = {
     ENOTFOUND: "Service temporarily unavailable",
     ECONNREFUSED: "Service temporarily unavailable",
@@ -451,10 +345,6 @@ export function sanitizeError(
   const errorType = error.name || error.code || "UnknownError";
   return genericMessages[errorType] || "An error occurred. Please try again.";
 }
-
-// ====================================
-// MIDDLEWARE HELPER
-// ====================================
 
 export function createSecurityMiddleware(options: {
   rateLimiter?: RateLimiter;
@@ -470,7 +360,6 @@ export function createSecurityMiddleware(options: {
   }> => {
     const clientIP = getClientIP(request);
 
-    // Rate limiting
     if (options.rateLimiter && !options.rateLimiter.isAllowed(clientIP)) {
       return {
         allowed: false,
@@ -483,7 +372,6 @@ export function createSecurityMiddleware(options: {
       };
     }
 
-    // Origin validation
     if (
       options.allowedOrigins &&
       !validateOrigin(request, options.allowedOrigins)
@@ -494,7 +382,6 @@ export function createSecurityMiddleware(options: {
       };
     }
 
-    // Cron secret validation
     if (options.requireCronSecret) {
       const secret = process.env.CRON_SECRET;
       if (!secret || !validateCronRequest(request, secret)) {
@@ -511,9 +398,5 @@ export function createSecurityMiddleware(options: {
     };
   };
 }
-
-// ====================================
-// EXPORTS
-// ====================================
 
 export { RateLimiter, type RateLimitEntry };

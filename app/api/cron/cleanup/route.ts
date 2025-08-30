@@ -1,4 +1,3 @@
-// app/api/cron/cleanup/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cleanupRateLimits } from "@/lib/db-rate-limiter";
 import { logger } from "@/lib/logs";
@@ -6,7 +5,6 @@ import { logger } from "@/lib/logs";
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  // Security check
   const cronSecret =
     request.headers.get("X-Cron-Secret") ||
     request.nextUrl.searchParams.get("secret");
@@ -24,14 +22,8 @@ export async function GET(request: NextRequest) {
       duration: 0,
     };
 
-    // Cleanup old rate limit entries (older than 24 hours)
     const rateLimitsRemoved = await cleanupRateLimits(24);
     results.rate_limits_cleaned = rateLimitsRemoved;
-
-    // Add more cleanup tasks here as needed
-    // - Old email notifications
-    // - Expired verification tokens
-    // - Old status history beyond retention period
 
     results.duration = Date.now() - startTime;
 
@@ -62,7 +54,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST method for manual cleanup with specific parameters
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = request.headers.get("X-Cron-Secret");
@@ -73,9 +64,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const olderThanHours = body.olderThanHours || 24;
 
-    // Validate parameter
     if (olderThanHours < 1 || olderThanHours > 8760) {
-      // Max 1 year
       return NextResponse.json(
         {
           error: "Invalid parameter",

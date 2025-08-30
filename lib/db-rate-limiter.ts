@@ -1,4 +1,3 @@
-// lib/db-rate-limiter.ts
 import { query, insert } from "./db";
 import { logger } from "@/lib/logs";
 
@@ -8,7 +7,6 @@ export const checkRateLimit = async (
   maxRequests: number = 10
 ): Promise<boolean> => {
   try {
-    // Clean old entries first - run every time for 5-second polling accuracy
     await query(
       `
       DELETE FROM rate_limits 
@@ -17,7 +15,6 @@ export const checkRateLimit = async (
       [windowMinutes]
     );
 
-    // Count current requests in the window
     const result = await query<{ count: number }>(
       `
       SELECT COUNT(*) as count 
@@ -36,7 +33,6 @@ export const checkRateLimit = async (
       return false;
     }
 
-    // Record this request
     await insert("INSERT INTO rate_limits (identifier) VALUES (?)", [
       identifier,
     ]);
@@ -44,12 +40,11 @@ export const checkRateLimit = async (
     return true;
   } catch (error) {
     logger.error("Rate limit check failed:", error);
-    // Fail open - allow the request if database is down
+
     return true;
   }
 };
 
-// Get rate limit status for monitoring
 export const getRateLimitStatus = async (
   identifier: string,
   windowMinutes: number = 5
@@ -74,7 +69,7 @@ export const getRateLimitStatus = async (
 
     return {
       current,
-      limit: 10, // Default limit, can be configurable
+      limit: 10,
       windowMinutes,
       resetTime,
     };
@@ -89,7 +84,6 @@ export const getRateLimitStatus = async (
   }
 };
 
-// Cleanup old rate limit entries (for maintenance)
 export const cleanupRateLimits = async (
   olderThanHours: number = 24
 ): Promise<number> => {

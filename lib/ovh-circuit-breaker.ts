@@ -1,4 +1,3 @@
-// lib/ovh-circuit-breaker.ts
 import { logger } from "@/lib/logs";
 interface CircuitBreakerState {
   failureCount: number;
@@ -10,8 +9,8 @@ interface CircuitBreakerState {
 const FAILURE_THRESHOLD = parseInt(
   process.env.OVH_CIRCUIT_BREAKER_THRESHOLD || "5"
 );
-const RECOVERY_TIMEOUT = 300000; // 5 minutes
-const LOG_THROTTLE = 60000; // Log every minute maximum
+const RECOVERY_TIMEOUT = 300000;
+const LOG_THROTTLE = 60000;
 
 let circuitState: CircuitBreakerState = {
   failureCount: 0,
@@ -20,7 +19,6 @@ let circuitState: CircuitBreakerState = {
   lastLogTime: 0,
 };
 
-// Log dengan throttling untuk menghindari spam
 const throttledLog = (level: "info" | "warn" | "error", message: string) => {
   const now = Date.now();
   if (now - circuitState.lastLogTime > LOG_THROTTLE) {
@@ -55,7 +53,6 @@ export const recordOVHSuccess = (): void => {
     circuitState.failureCount = 0;
     throttledLog("info", "Circuit CLOSED - OVH API recovered");
   } else if (circuitState.failureCount > 0) {
-    // Reset failure count on success
     circuitState.failureCount = Math.max(0, circuitState.failureCount - 1);
   }
 };
@@ -74,7 +71,6 @@ export const recordOVHFailure = (error?: string): void => {
         `Recovery in ${RECOVERY_TIMEOUT / 1000}s. Last error: ${error || "Unknown"}`
     );
   } else if (circuitState.state === "HALF_OPEN") {
-    // If we fail during half-open, go back to open
     circuitState.state = "OPEN";
     logger.warn(`Circuit Breaker: Back to OPEN from HALF_OPEN due to failure`);
   }
@@ -106,7 +102,6 @@ export const resetCircuitBreaker = (): void => {
   logger.log("Circuit Breaker: Manual reset to CLOSED state");
 };
 
-// Default export untuk compatibility
 const circuitBreaker = {
   canCallOVHAPI,
   recordOVHSuccess,

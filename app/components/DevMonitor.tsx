@@ -1,9 +1,8 @@
-// components/DevMonitor.tsx - NEW FILE untuk development mode
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import { logger } from "@/lib/logs";
-import { useVPSMonitor } from "@/hooks/useVPSMonitor"; // FIX: Import the hook
+import { useVPSMonitor } from "@/hooks/useVPSMonitor";
 
 interface DevMonitorProps {
   isVisible?: boolean;
@@ -34,7 +33,6 @@ interface SystemStats {
 export const DevMonitor: React.FC<DevMonitorProps> = ({
   isVisible = process.env.NODE_ENV === "development",
 }) => {
-  // FIX: Get state from useVPSMonitor hook
   const { connectionMode, isTabVisible, sseEvents } = useVPSMonitor({
     enableSSE: true,
   });
@@ -65,10 +63,6 @@ export const DevMonitor: React.FC<DevMonitorProps> = ({
     const logEntry = `[${timestamp}] ${emoji} ${message}`;
     setLogs((prev) => [...prev.slice(-50), logEntry]);
   };
-
-  // ====================================
-  // SSE MONITORING
-  // ====================================
 
   const setupSSEMonitoring = () => {
     if (eventSourceRef.current) {
@@ -238,16 +232,11 @@ export const DevMonitor: React.FC<DevMonitorProps> = ({
     }
   };
 
-  // ====================================
-  // AUTO-START MONITORING
-  // ====================================
-
   useEffect(() => {
     if (isVisible) {
       setupSSEMonitoring();
       addLog("DevMonitor initialized", "success");
 
-      // Auto-run diagnostics on start
       setTimeout(runDiagnostics, 1000);
     }
 
@@ -257,10 +246,6 @@ export const DevMonitor: React.FC<DevMonitorProps> = ({
       }
     };
   }, [isVisible]);
-
-  // ====================================
-  // RENDER
-  // ====================================
 
   if (!isVisible) return null;
 
@@ -400,13 +385,8 @@ export const DevMonitor: React.FC<DevMonitorProps> = ({
   );
 };
 
-// ====================================
-// CONSOLE HELPERS SETUP
-// ====================================
-
 export const setupDevConsoleHelpers = () => {
   if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-    // Test SSE manually
     (window as any).testSSE = () => {
       console.log("🔌 Testing SSE connection...");
       const eventSource = new EventSource("/api/sse/status");
@@ -421,7 +401,6 @@ export const setupDevConsoleHelpers = () => {
       return eventSource;
     };
 
-    // Trigger status change
     (window as any).triggerChange = async (model = 1, datacenter = "SBG") => {
       const status = Math.random() > 0.5 ? "available" : "out-of-stock";
 
@@ -443,7 +422,6 @@ export const setupDevConsoleHelpers = () => {
       }
     };
 
-    // Get SSE stats
     (window as any).sseStats = async () => {
       try {
         const response = await fetch("/api/test/sse-stats");

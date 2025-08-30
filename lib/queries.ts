@@ -1,10 +1,4 @@
-// lib/queries.ts
 import { query, queryRow, insert, update, transaction } from "./db";
-import logger from "./logs";
-
-// ====================================
-// TYPE DEFINITIONS
-// ====================================
 
 export type VPSStatus = "available" | "out-of-stock";
 export type StatusChange = "became_available" | "became_out_of_stock";
@@ -56,11 +50,19 @@ export interface StatusHistory {
   changed_at: string;
 }
 
-// ====================================
-// STATUS QUERIES
-// ====================================
+export interface EmailDigest {
+  user_id: number;
+  email: string;
+  unsubscribe_token: string;
+  notifications: Array<{
+    id: number;
+    model: number;
+    datacenter: string;
+    status_change: StatusChange;
+    created_at: string;
+  }>;
+}
 
-// Get all current status for dashboard
 export const getAllStatus = async (): Promise<DatacenterStatus[]> => {
   const sql = `
     SELECT 
@@ -72,7 +74,6 @@ export const getAllStatus = async (): Promise<DatacenterStatus[]> => {
   return await query<DatacenterStatus>(sql);
 };
 
-// Get status for specific model
 export const getStatusByModel = async (
   model: number
 ): Promise<DatacenterStatus[]> => {
@@ -87,7 +88,6 @@ export const getStatusByModel = async (
   return await query<DatacenterStatus>(sql, [model]);
 };
 
-// Get status for specific model and datacenter
 export const getStatusByModelAndDatacenter = async (
   model: number,
   datacenter: string
@@ -102,31 +102,44 @@ export const getStatusByModelAndDatacenter = async (
   return await queryRow<DatacenterStatus>(sql, [model, datacenter]);
 };
 
-// Update or insert status (upsert)
 export const upsertStatus = async (
   model: number,
   datacenter: string,
   status: VPSStatus
 ): Promise<{ changed: boolean; oldStatus?: VPSStatus }> => {
   return await transaction(async (connection) => {
-    // Check current status
     const [currentRows] = (await connection.execute(
-      "SELECT status FROM datacenter_status WHERE model = ? AND datacenter = ?",
+      "SELECT status, last_changed FROM datacenter_status WHERE model = ? AND datacenter = ? FOR UPDATE",
       [model, datacenter]
     )) as [any[], any];
 
     const currentStatus = currentRows[0]?.status as VPSStatus | undefined;
+    const lastChanged = currentRows[0]?.last_changed;
     const statusChanged = currentStatus !== status;
 
+    if (statusChanged && lastChanged) {
+      const timeSinceLastChange = Date.now() - new Date(lastChanged).getTime();
+      if (timeSinceLastChange < 60000) {
+        console.log(
+          `Ignoring rapid status change for model ${model} in ${datacenter}: ${currentStatus} → ${status} (${Math.round(timeSinceLastChange / 1000)}s apart)`
+        );
+
+        await connection.execute(
+          `UPDATE datacenter_status SET last_checked = NOW() WHERE model = ? AND datacenter = ?`,
+          [model, datacenter]
+        );
+
+        return { changed: false, oldStatus: currentStatus };
+      }
+    }
+
     if (currentRows.length === 0) {
-      // Insert new record
       await connection.execute(
         `INSERT INTO datacenter_status (model, datacenter, status, last_changed) 
          VALUES (?, ?, ?, NOW())`,
         [model, datacenter, status]
       );
     } else {
-      // Update existing record
       const lastChangedUpdate = statusChanged ? ", last_changed = NOW()" : "";
       await connection.execute(
         `UPDATE datacenter_status 
@@ -136,7 +149,6 @@ export const upsertStatus = async (
       );
     }
 
-    // Record history if status changed
     if (statusChanged) {
       await connection.execute(
         `INSERT INTO status_history (model, datacenter, old_status, new_status)
@@ -152,14 +164,8 @@ export const upsertStatus = async (
   });
 };
 
-// ====================================
-// USER QUERIES
-// ====================================
-
-// Get or create user by email
 export const getOrCreateUser = async (email: string): Promise<User> => {
   return await transaction(async (connection) => {
-    // Check if user exists
     const [existingRows] = (await connection.execute(
       "SELECT * FROM users WHERE email = ?",
       [email]
@@ -169,7 +175,6 @@ export const getOrCreateUser = async (email: string): Promise<User> => {
       return existingRows[0] as User;
     }
 
-    // Create new user
     const verificationToken = generateToken();
     const unsubscribeToken = generateToken();
 
@@ -188,43 +193,37 @@ export const getOrCreateUser = async (email: string): Promise<User> => {
   });
 };
 
-// Verify user email
 export const verifyUser = async (token: string): Promise<User | null> => {
   return await transaction(async (connection) => {
     try {
-      // Check if user exists with this token
       const [existingRows] = (await connection.execute(
         "SELECT * FROM users WHERE verification_token = ? AND email_verified = 0",
         [token]
       )) as [any[], any];
 
       if (existingRows.length === 0) {
-        // Token not found or already verified
         return null;
       }
 
       const user = existingRows[0] as User;
 
-      // Update user as verified
       await connection.execute(
         "UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?",
         [user.id]
       );
 
-      // Return updated user data
       return {
         ...user,
         email_verified: true,
         verification_token: null,
       };
     } catch (error) {
-      logger.error("Database error in verifyUser:", error);
+      console.error("Database error in verifyUser:", error);
       throw error;
     }
   });
 };
 
-// Get user by unsubscribe token
 export const getUserByUnsubscribeToken = async (
   token: string
 ): Promise<User | null> => {
@@ -232,11 +231,6 @@ export const getUserByUnsubscribeToken = async (
   return await queryRow<User>(sql, [token]);
 };
 
-// ====================================
-// SUBSCRIPTION QUERIES
-// ====================================
-
-// Get user subscriptions
 export const getUserSubscriptions = async (
   userId: number
 ): Promise<UserSubscription[]> => {
@@ -248,21 +242,18 @@ export const getUserSubscriptions = async (
   return await query<UserSubscription>(sql, [userId]);
 };
 
-// Create or update subscription
 export const upsertSubscription = async (
   userId: number,
   model: number,
   datacenter: string
 ): Promise<UserSubscription> => {
   return await transaction(async (connection) => {
-    // Check if subscription exists
     const [existingRows] = (await connection.execute(
       "SELECT * FROM user_subscriptions WHERE user_id = ? AND model = ? AND datacenter = ?",
       [userId, model, datacenter]
     )) as [any[], any];
 
     if (existingRows.length > 0) {
-      // Reactivate if exists but inactive
       await connection.execute(
         "UPDATE user_subscriptions SET is_active = 1 WHERE id = ?",
         [existingRows[0].id]
@@ -270,7 +261,6 @@ export const upsertSubscription = async (
       return { ...existingRows[0], is_active: true } as UserSubscription;
     }
 
-    // Create new subscription
     const [result] = (await connection.execute(
       "INSERT INTO user_subscriptions (user_id, model, datacenter) VALUES (?, ?, ?)",
       [userId, model, datacenter]
@@ -285,7 +275,6 @@ export const upsertSubscription = async (
   });
 };
 
-// Unsubscribe user from specific model+datacenter
 export const unsubscribeFromModel = async (
   userId: number,
   model: number,
@@ -300,14 +289,12 @@ export const unsubscribeFromModel = async (
   return affectedRows > 0;
 };
 
-// Unsubscribe user completely
 export const unsubscribeUser = async (userId: number): Promise<boolean> => {
   const sql = "UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ?";
   const affectedRows = await update(sql, [userId]);
   return affectedRows > 0;
 };
 
-// Get active subscriptions for status change notifications
 export const getActiveSubscriptionsForStatus = async (
   model: number,
   datacenter: string
@@ -324,94 +311,367 @@ export const getActiveSubscriptionsForStatus = async (
   >(sql, [model, datacenter]);
 };
 
-// ====================================
-// EMAIL NOTIFICATION QUERIES
-// ====================================
-
-// Queue email notification
 export const queueEmailNotification = async (
   userId: number,
   model: number,
   datacenter: string,
   statusChange: StatusChange
 ): Promise<void> => {
-  // Check if similar notification already exists in last 10 minutes
-  const existingNotification = await queryRow(
-    `SELECT id FROM email_notifications 
-     WHERE user_id = ? AND model = ? AND datacenter = ? 
-       AND status_change = ? AND created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-     ORDER BY created_at DESC LIMIT 1`,
-    [userId, model, datacenter, statusChange]
-  );
+  try {
+    if (statusChange === "became_out_of_stock") {
+      console.log(
+        `Skipping out-of-stock notification for user ${userId}, model ${model}, datacenter ${datacenter}`
+      );
+      return;
+    }
 
-  if (!existingNotification) {
-    await insert(
-      "INSERT INTO email_notifications (user_id, model, datacenter, status_change) VALUES (?, ?, ?, ?)",
-      [userId, model, datacenter, statusChange]
+    await transaction(async (connection) => {
+      const [recentNotifications] = (await connection.execute(
+        `SELECT id, status_change, created_at 
+         FROM email_notifications 
+         WHERE user_id = ? AND model = ? AND datacenter = ? 
+           AND created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+         ORDER BY created_at DESC 
+         LIMIT 3`,
+        [userId, model, datacenter]
+      )) as [any[], any];
+
+      for (const notification of recentNotifications) {
+        const timeDiff =
+          Date.now() - new Date(notification.created_at).getTime();
+
+        if (notification.status_change === statusChange && timeDiff < 600000) {
+          console.log(
+            `Skipping duplicate notification: ${statusChange} for user ${userId}, model ${model}, datacenter ${datacenter}`
+          );
+          return;
+        }
+
+        if (timeDiff < 300000) {
+          console.log(
+            `Skipping notification due to recent activity (${Math.round(timeDiff / 1000)}s ago) for user ${userId}, model ${model}, datacenter ${datacenter}`
+          );
+          return;
+        }
+      }
+
+      const [pendingNotifications] = (await connection.execute(
+        `SELECT id 
+         FROM email_notifications 
+         WHERE user_id = ? AND model = ? AND datacenter = ? 
+           AND sent_at IS NULL AND failed_attempts < 3`,
+        [userId, model, datacenter]
+      )) as [any[], any];
+
+      if (pendingNotifications.length > 0) {
+        console.log(
+          `Skipping notification - already pending for user ${userId}, model ${model}, datacenter ${datacenter}`
+        );
+        return;
+      }
+
+      await connection.execute(
+        "INSERT INTO email_notifications (user_id, model, datacenter, status_change) VALUES (?, ?, ?, ?)",
+        [userId, model, datacenter, statusChange]
+      );
+
+      console.log(
+        `Queued email notification: ${statusChange} for user ${userId}, model ${model}, datacenter ${datacenter}`
+      );
+    });
+  } catch (error) {
+    console.error("Error queueing email notification:", error);
+    throw new Error(
+      `Failed to queue email notification: ${(error as Error).message}`
     );
   }
 };
 
-// Get pending email notifications
+export const getPendingEmailsGroupedByUser = async (
+  limit: number = 50
+): Promise<EmailDigest[]> => {
+  const safeLimit = Math.max(1, Math.min(Math.floor(Number(limit) || 50), 100));
+
+  try {
+    const sql = `
+      SELECT 
+        en.id,
+        en.user_id,
+        en.model,
+        en.datacenter,
+        en.status_change,
+        en.created_at,
+        u.email,
+        u.unsubscribe_token
+      FROM email_notifications en
+      JOIN users u ON en.user_id = u.id
+      WHERE en.sent_at IS NULL 
+        AND en.failed_attempts < 3
+        AND u.email_verified = 1
+        AND en.status_change = 'became_available'
+      ORDER BY en.user_id, en.created_at ASC
+      LIMIT ${safeLimit}
+    `;
+
+    const notifications = await query<
+      EmailNotification & { email: string; unsubscribe_token: string }
+    >(sql, []);
+
+    const userGroups = new Map<number, EmailDigest>();
+
+    for (const notification of notifications) {
+      if (!userGroups.has(notification.user_id)) {
+        userGroups.set(notification.user_id, {
+          user_id: notification.user_id,
+          email: notification.email,
+          unsubscribe_token: notification.unsubscribe_token,
+          notifications: [],
+        });
+      }
+
+      userGroups.get(notification.user_id)!.notifications.push({
+        id: notification.id,
+        model: notification.model,
+        datacenter: notification.datacenter,
+        status_change: notification.status_change,
+        created_at: notification.created_at,
+      });
+    }
+
+    const result = Array.from(userGroups.values());
+    console.log(
+      `Successfully grouped ${notifications.length} notifications into ${result.length} user digests`
+    );
+    return result;
+  } catch (error) {
+    console.error("getPendingEmailsGroupedByUser failed:", error);
+    throw new Error(
+      `Failed to get grouped pending emails: ${(error as Error).message}`
+    );
+  }
+};
+
 export const getPendingEmails = async (
   limit: number = 50
 ): Promise<
   (EmailNotification & { email: string; unsubscribe_token: string })[]
 > => {
-  const sql = `
-    SELECT en.*, u.email, u.unsubscribe_token
-    FROM email_notifications en
-    JOIN users u ON en.user_id = u.id
-    WHERE en.sent_at IS NULL AND en.failed_attempts < 3
-    ORDER BY en.created_at ASC
-    LIMIT ?
-  `;
-  return await query<
-    EmailNotification & { email: string; unsubscribe_token: string }
-  >(sql, [limit]);
+  const safeLimit = Math.max(1, Math.min(Math.floor(Number(limit) || 50), 100));
+
+  try {
+    const sql = `
+      SELECT 
+        en.id,
+        en.user_id,
+        en.model,
+        en.datacenter,
+        en.status_change,
+        en.created_at,
+        en.sent_at,
+        en.failed_attempts,
+        u.email,
+        u.unsubscribe_token
+      FROM email_notifications en
+      JOIN users u ON en.user_id = u.id
+      WHERE en.sent_at IS NULL 
+        AND en.failed_attempts < 3
+        AND u.email_verified = 1
+        AND en.status_change = 'became_available'
+      ORDER BY en.created_at ASC
+      LIMIT ${safeLimit}
+    `;
+
+    const result = await query<
+      EmailNotification & { email: string; unsubscribe_token: string }
+    >(sql, []);
+
+    console.log(`Successfully fetched ${result.length} pending emails`);
+    return result;
+  } catch (error) {
+    console.error("getPendingEmails failed:", error);
+    throw new Error(
+      `Failed to get pending emails: ${(error as Error).message}`
+    );
+  }
 };
 
-// Mark email as sent
+export const markMultipleEmailsAsSent = async (
+  emailIds: number[]
+): Promise<void> => {
+  if (!emailIds.length) return;
+
+  try {
+    const placeholders = emailIds.map(() => "?").join(",");
+    const sql = `UPDATE email_notifications SET sent_at = NOW() WHERE id IN (${placeholders})`;
+    const affectedRows = await update(sql, emailIds);
+    console.log(
+      `Marked ${affectedRows} emails as sent (IDs: ${emailIds.join(", ")})`
+    );
+  } catch (error) {
+    console.error("markMultipleEmailsAsSent error:", error);
+    throw new Error(
+      `Failed to mark emails as sent: ${(error as Error).message}`
+    );
+  }
+};
+
 export const markEmailAsSent = async (emailId: number): Promise<void> => {
-  await update("UPDATE email_notifications SET sent_at = NOW() WHERE id = ?", [
-    emailId,
-  ]);
+  if (!emailId || emailId <= 0 || !Number.isInteger(emailId)) {
+    throw new Error("Invalid email ID");
+  }
+
+  try {
+    const sql = "UPDATE email_notifications SET sent_at = NOW() WHERE id = ?";
+    const affectedRows = await update(sql, [emailId]);
+    console.log(
+      `Email ${emailId} marked as sent (affected rows: ${affectedRows})`
+    );
+  } catch (error) {
+    console.error("markEmailAsSent error:", error);
+    throw new Error(
+      `Failed to mark email as sent: ${(error as Error).message}`
+    );
+  }
 };
 
-// Increment failed attempts
 export const incrementEmailFailedAttempts = async (
   emailId: number
 ): Promise<void> => {
-  await update(
-    "UPDATE email_notifications SET failed_attempts = failed_attempts + 1 WHERE id = ?",
-    [emailId]
-  );
+  if (!emailId || emailId <= 0 || !Number.isInteger(emailId)) {
+    throw new Error("Invalid email ID");
+  }
+
+  try {
+    const sql = `
+      UPDATE email_notifications 
+      SET failed_attempts = failed_attempts + 1 
+      WHERE id = ? AND failed_attempts < 10
+    `;
+    const affectedRows = await update(sql, [emailId]);
+    console.log(
+      `Failed attempts incremented for email ${emailId} (affected rows: ${affectedRows})`
+    );
+  } catch (error) {
+    console.error("incrementEmailFailedAttempts error:", error);
+    throw new Error(
+      `Failed to increment failed attempts: ${(error as Error).message}`
+    );
+  }
 };
 
-// ====================================
-// UTILITY FUNCTIONS
-// ====================================
+export const getEmailNotificationStats = async (): Promise<{
+  pending: number;
+  sent: number;
+  failed: number;
+  total: number;
+  availableOnly: number;
+}> => {
+  try {
+    const sql = `
+      SELECT 
+        COUNT(CASE WHEN sent_at IS NULL AND failed_attempts < 3 THEN 1 END) as pending,
+        COUNT(CASE WHEN sent_at IS NOT NULL THEN 1 END) as sent,
+        COUNT(CASE WHEN failed_attempts >= 3 THEN 1 END) as failed,
+        COUNT(*) as total,
+        COUNT(CASE WHEN status_change = 'became_available' THEN 1 END) as availableOnly
+      FROM email_notifications
+      WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+    `;
 
-// Generate random token
+    const result = await queryRow<{
+      pending: number;
+      sent: number;
+      failed: number;
+      total: number;
+      availableOnly: number;
+    }>(sql, []);
+
+    return (
+      result || { pending: 0, sent: 0, failed: 0, total: 0, availableOnly: 0 }
+    );
+  } catch (error) {
+    console.error("getEmailNotificationStats error:", error);
+    return { pending: 0, sent: 0, failed: 0, total: 0, availableOnly: 0 };
+  }
+};
+
+export const cleanupFailedEmails = async (
+  olderThanHours: number = 24
+): Promise<number> => {
+  const safeHours = Math.max(
+    1,
+    Math.min(Math.floor(Number(olderThanHours) || 24), 168)
+  );
+
+  try {
+    const sql = `
+      DELETE FROM email_notifications 
+      WHERE failed_attempts >= 3 
+        AND created_at < DATE_SUB(NOW(), INTERVAL ${safeHours} HOUR)
+    `;
+    const affectedRows = await update(sql, []);
+    console.log(
+      `Cleaned up ${affectedRows} failed emails older than ${safeHours} hours`
+    );
+    return affectedRows;
+  } catch (error) {
+    console.error("cleanupFailedEmails error:", error);
+    return 0;
+  }
+};
+
+export const testDatabaseQuery = async (): Promise<boolean> => {
+  try {
+    console.log("Testing database queries...");
+
+    const result1 = await query("SELECT 1 as test", []);
+    console.log("Simple SELECT successful:", result1);
+
+    const result2 = await query("SELECT ? as test_param", [123]);
+    console.log("Parameterized SELECT successful:", result2);
+
+    const tables = await query("SHOW TABLES", []);
+    console.log("Tables found:", tables.length);
+
+    const countResult = await query(
+      "SELECT COUNT(*) as count FROM email_notifications",
+      []
+    );
+    console.log("Count query successful:", countResult);
+
+    const joinResult = await query(
+      `
+      SELECT en.id, u.email
+      FROM email_notifications en
+      JOIN users u ON en.user_id = u.id
+      WHERE en.sent_at IS NULL 
+        AND en.failed_attempts < 3
+        AND u.email_verified = 1
+        AND en.status_change = 'became_available'
+    `,
+      []
+    );
+    console.log("JOIN query successful:", joinResult.length, "rows");
+
+    return true;
+  } catch (error) {
+    console.error("Database test failed:", error);
+    return false;
+  }
+};
+
 const generateToken = (): string => {
   return require("crypto").randomBytes(16).toString("hex");
 };
 
-// Get VPS models (could be from config or database)
 export const getVPSModels = (): number[] => {
-  return [1, 2, 3, 4, 5, 6]; // Based on your system, adjust as needed
+  return [1, 2, 3, 4, 5, 6];
 };
 
-// Get datacenters
 export const getDatacenters = (): string[] => {
-  return ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR", "SGP", "SYD"]; // Adjust based on OVH datacenters you monitor
+  return ["GRA", "SBG", "BHS", "WAW", "UK", "DE", "FR", "SGP", "SYD"];
 };
 
-// ====================================
-// ANALYTICS QUERIES (Optional)
-// ====================================
-
-// Get status history for specific model/datacenter
 export const getStatusHistory = async (
   model: number,
   datacenter: string,
@@ -426,7 +686,6 @@ export const getStatusHistory = async (
   return await query<StatusHistory>(sql, [model, datacenter, days]);
 };
 
-// Get availability statistics
 export const getAvailabilityStats = async (
   days: number = 7
 ): Promise<any[]> => {

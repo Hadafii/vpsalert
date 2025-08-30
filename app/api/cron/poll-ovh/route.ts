@@ -1,4 +1,3 @@
-// app/api/cron/poll-ovh/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   upsertStatus,
@@ -15,31 +14,24 @@ import {
 import { logger } from "@/lib/logs";
 import { triggerSSEBroadcast } from "@/lib/sse-broadcast";
 
-// OVH API Configuration - Fixed untuk real endpoints
 const OVH_BASE_URL = "https://ca.api.ovh.com/1.0/vps/order/rule/datacenter";
 const OVH_PARAMS = "ovhSubsidiary=ASIA&os=";
 const VPS_MODELS = [1, 2, 3, 4, 5, 6];
 
-// Datacenter mapping untuk response OVH
 const DATACENTER_MAPPING: Record<string, string> = {
-  // Europe
-  gra: "GRA", // Gravelines, France
-  sbg: "SBG", // Strasbourg, France
-  rbx: "RBX", // Roubaix, France
-  waw: "WAW", // Warsaw, Poland
-  fra: "DE", // Frankfurt, Germany (legacy)
-  // Americas
-  bhs: "BHS", // Beauharnois, Canada
-  // Asia Pacific
-  sgp: "SGP", // Singapore (NEW!)
-  syd: "SYD", // Sydney, Australia (NEW!)
-  // UK & Others
-  lon: "UK", // London, UK (legacy)
-  uk: "UK", // London, UK (current)
-  de: "DE", // Germany (current)
+  gra: "GRA",
+  sbg: "SBG",
+  rbx: "RBX",
+  waw: "WAW",
+  fra: "DE",
+  bhs: "BHS",
+  sgp: "SGP",
+  syd: "SYD",
+  lon: "UK",
+  uk: "UK",
+  de: "DE",
 };
 
-// Interface untuk OVH API Response (actual structure)
 interface OVHDatacenterResponse {
   datacenter: string;
   available: boolean;
@@ -47,13 +39,11 @@ interface OVHDatacenterResponse {
 
 interface OVHResponse {
   datacenters?: OVHDatacenterResponse[];
-  // Alternative structures yang mungkin
+
   available_datacenters?: string[];
   unavailable_datacenters?: string[];
 }
 
-// Parse OVH Response - Fixed untuk actual API
-// Replace parseOVHResponse function dengan handling multiple formats
 const parseOVHResponse = (
   response: any,
   model: number
@@ -61,14 +51,11 @@ const parseOVHResponse = (
   const results: { datacenter: string; status: VPSStatus }[] = [];
 
   try {
-    // NEW API Structure - Handle "datacenters" array
     if (response.datacenters && Array.isArray(response.datacenters)) {
       response.datacenters.forEach((dc: any) => {
         if (dc.datacenter) {
-          // Use datacenter code directly (SGP, DE, WAW, etc.)
           const datacenterCode = dc.datacenter.toUpperCase();
 
-          // Determine status - prioritize linuxStatus untuk VPS Linux
           let status: VPSStatus = "out-of-stock";
 
           if (dc.linuxStatus === "available" || dc.status === "available") {
@@ -85,10 +72,7 @@ const parseOVHResponse = (
           );
         }
       });
-    }
-
-    // LEGACY: Handle old format if new format not available
-    else if (
+    } else if (
       response.available_datacenters &&
       Array.isArray(response.available_datacenters)
     ) {
@@ -114,10 +98,7 @@ const parseOVHResponse = (
           });
         });
       }
-    }
-
-    // FALLBACK: Handle any other structure
-    else {
+    } else {
       console.warn(
         `Unknown OVH API response structure for model ${model}:`,
         response
@@ -130,13 +111,11 @@ const parseOVHResponse = (
   return results;
 };
 
-// Fetch single VPS model status
 const fetchModelStatus = async (
   model: number
 ): Promise<{ model: number; datacenters: any[]; error?: string }> => {
   const url = `${OVH_BASE_URL}?${OVH_PARAMS}&planCode=vps-2025-model${model}`;
 
-  // Circuit breaker check
   if (!canCallOVHAPI()) {
     return {
       model,
@@ -146,7 +125,6 @@ const fetchModelStatus = async (
   }
 
   try {
-    // Create AbortController for timeout
     const abortController = new AbortController();
     const timeoutId = setTimeout(
       () => abortController.abort(),
@@ -172,7 +150,6 @@ const fetchModelStatus = async (
     const data: OVHResponse = await response.json();
     const datacenters = parseOVHResponse(data, model);
 
-    // Record success for circuit breaker
     recordOVHSuccess();
 
     return { model, datacenters };
@@ -180,7 +157,6 @@ const fetchModelStatus = async (
     const errorMessage = (error as Error).message;
     logger.error(`Error fetching model ${model}:`, errorMessage);
 
-    // Record failure for circuit breaker
     recordOVHFailure(errorMessage);
 
     return {
@@ -191,10 +167,9 @@ const fetchModelStatus = async (
   }
 };
 
-// Process status updates and queue notifications
 const processStatusUpdates = async (results: any[]) => {
   let totalChanges = 0;
-  const statusUpdates: any[] = []; // NEW: Collect updates untuk SSE
+  const statusUpdates: any[] = [];
 
   for (const result of results) {
     if (result.error) continue;
@@ -209,7 +184,6 @@ const processStatusUpdates = async (results: any[]) => {
       if (updateResult.changed) {
         totalChanges++;
 
-        // Collect untuk SSE broadcast - NEW!
         statusUpdates.push({
           model: result.model,
           datacenter: dcStatus.datacenter,
@@ -218,7 +192,6 @@ const processStatusUpdates = async (results: any[]) => {
           timestamp: new Date().toISOString(),
         });
 
-        // Queue email notifications
         const statusChange: StatusChange =
           dcStatus.status === "available"
             ? "became_available"
@@ -245,7 +218,6 @@ const processStatusUpdates = async (results: any[]) => {
     }
   }
 
-  // NEW: Trigger SSE broadcast untuk semua changes
   if (statusUpdates.length > 0) {
     try {
       await triggerSSEBroadcast(statusUpdates);
@@ -260,11 +232,9 @@ const processStatusUpdates = async (results: any[]) => {
   return totalChanges;
 };
 
-// Main polling endpoint
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  // Security check
   const cronSecret =
     request.headers.get("X-Cron-Secret") ||
     request.nextUrl.searchParams.get("secret");
@@ -277,11 +247,9 @@ export async function GET(request: NextRequest) {
   logger.log("Starting OVH status polling for 6 models...");
 
   try {
-    // Fetch all models in parallel
     const promises = VPS_MODELS.map((model) => fetchModelStatus(model));
     const results = await Promise.allSettled(promises);
 
-    // Process results
     const processedResults = results.map((result, index) => {
       if (result.status === "fulfilled") {
         return result.value;
@@ -294,7 +262,6 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Update database and queue notifications
     const totalChanges = await processStatusUpdates(processedResults);
 
     const duration = Date.now() - startTime;
@@ -340,7 +307,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Health check
 export async function HEAD() {
   return new Response(null, {
     status: 200,

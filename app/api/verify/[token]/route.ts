@@ -3,7 +3,6 @@ import { verifyUser, getUserSubscriptions } from "@/lib/queries";
 import { sanitizeToken, getClientIP } from "@/lib/security";
 import { logger } from "@/lib/logs";
 
-// GET /api/verify/[token] - Verify email and return JSON
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -17,10 +16,8 @@ export async function GET(
       `Verification request from ${clientIP} for token: ${token.substring(0, 8)}...`
     );
 
-    // Sanitize and validate token
     const cleanToken = sanitizeToken(token);
 
-    // Attempt to verify user
     const user = await verifyUser(cleanToken);
 
     if (!user) {
@@ -40,7 +37,6 @@ export async function GET(
       );
     }
 
-    // Get user's subscriptions
     const subscriptions = await getUserSubscriptions(user.id);
     const activeSubscriptions = subscriptions.filter((sub) => sub.is_active);
 

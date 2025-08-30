@@ -1,4 +1,3 @@
-// app/api/sse/status/route.ts
 import { NextRequest } from "next/server";
 import { getAllStatus, getVPSModels } from "@/lib/queries";
 import { logger } from "@/lib/logs";
@@ -8,10 +7,6 @@ import {
   sseConnections,
 } from "@/lib/sse-broadcast";
 
-// ====================================
-// CONNECTION MANAGEMENT
-// ====================================
-
 interface SSEConnection {
   id: string;
   controller: ReadableStreamDefaultController;
@@ -20,16 +15,13 @@ interface SSEConnection {
   connected: boolean;
 }
 
-// Global connection store
 const connections = new Map<string, SSEConnection>();
 const MAX_CONNECTIONS = parseInt(process.env.MAX_SSE_CONNECTIONS || "1000");
-const PING_INTERVAL = 15000; // 15 seconds - faster heartbeat for real-time feel
-const CONNECTION_TIMEOUT = 300000; // 5 minutes
+const PING_INTERVAL = 15000;
+const CONNECTION_TIMEOUT = 300000;
 
-// Startup flag untuk cleanup
 let isServerStartup = true;
 
-// Cleanup connections pada server startup
 const cleanupOnStartup = () => {
   if (isServerStartup) {
     connections.clear();
@@ -38,12 +30,10 @@ const cleanupOnStartup = () => {
   }
 };
 
-// Generate unique connection ID
 const generateConnectionId = (): string => {
   return `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
-// Cleanup disconnected connections
 const cleanupConnections = () => {
   const now = Date.now();
   const toDelete: string[] = [];
@@ -59,9 +49,7 @@ const cleanupConnections = () => {
     if (conn) {
       try {
         conn.controller.close();
-      } catch (e) {
-        // Connection already closed
-      }
+      } catch (e) {}
       connections.delete(id);
     }
   });
@@ -71,12 +59,7 @@ const cleanupConnections = () => {
   );
 };
 
-// Periodic cleanup - more frequent for better real-time accuracy
-setInterval(cleanupConnections, 15000); // Every 15 seconds
-
-// ====================================
-// SSE HELPERS
-// ====================================
+setInterval(cleanupConnections, 15000);
 
 const createSSEMessage = (event: string, data: any, id?: string): string => {
   let message = "";
@@ -109,21 +92,12 @@ const sendKeepAlive = (controller: ReadableStreamDefaultController) => {
   }
 };
 
-// ====================================
-// STATUS UPDATE BROADCASTING
-// ====================================
-
-// Use shared broadcasting logic from lib
-// Last known status is now managed in sse-broadcast.ts
-
-// Broadcast status updates to connected clients
 const broadcastStatusUpdate = async () => {
   if (connections.size === 0) return;
 
   try {
     const updates = await getStatusChanges();
 
-    // Send updates to relevant connections
     if (updates.length > 0) {
       logger.log(
         `Broadcasting ${updates.length} status updates to ${connections.size} connections`
@@ -132,7 +106,6 @@ const broadcastStatusUpdate = async () => {
       connections.forEach((conn, id) => {
         if (!conn.connected) return;
 
-        // Filter updates for models this connection is interested in
         const relevantUpdates = updates.filter(
           (update) =>
             conn.models.length === 0 || conn.models.includes(update.model)
@@ -147,7 +120,6 @@ const broadcastStatusUpdate = async () => {
       });
     }
 
-    // Send periodic heartbeat to all connections
     const now = Date.now();
     connections.forEach((conn, id) => {
       if (conn.connected && now - conn.lastPing > PING_INTERVAL) {
@@ -160,20 +132,13 @@ const broadcastStatusUpdate = async () => {
   }
 };
 
-// Initialize on startup
 initializeStatusSnapshot();
 
-// ====================================
-// SSE ENDPOINT
-// ====================================
-
 export async function GET(request: NextRequest) {
-  // Cleanup on startup
   cleanupOnStartup();
 
-  // Check connection limits dengan buffer
   if (connections.size >= MAX_CONNECTIONS) {
-    cleanupConnections(); // Try cleanup first
+    cleanupConnections();
     if (connections.size >= MAX_CONNECTIONS) {
       logger.warn(
         `SSE connection limit reached: ${connections.size}/${MAX_CONNECTIONS}`
@@ -189,7 +154,6 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
 
-  // Parse models parameter
   let subscribedModels: number[] = [];
   const modelsParam = searchParams.get("models");
   if (modelsParam) {
@@ -198,7 +162,7 @@ export async function GET(request: NextRequest) {
         .split(",")
         .map((m) => parseInt(m.trim()))
         .filter((m) => !isNaN(m));
-      // Validate models
+
       const validModels = getVPSModels();
       subscribedModels = subscribedModels.filter((m) =>
         validModels.includes(m)
@@ -208,17 +172,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Create connection ID
   const connectionId = generateConnectionId();
 
   logger.log(
     `New SSE connection: ${connectionId}, models: [${subscribedModels.join(", ")}]`
   );
 
-  // Create readable stream
   const stream = new ReadableStream({
     start(controller) {
-      // Store connection - UPDATE INI:
       const connection: SSEConnection = {
         id: connectionId,
         controller,
@@ -227,11 +188,9 @@ export async function GET(request: NextRequest) {
         connected: true,
       };
 
-      // ADD INI: Store di shared connections untuk broadcast
       sseConnections.set(connectionId, connection);
       connections.set(connectionId, connection);
 
-      // Send initial connection confirmation
       sendSSEMessage(controller, "connected", {
         connectionId,
         subscribedModels,
@@ -239,7 +198,6 @@ export async function GET(request: NextRequest) {
         activeConnections: connections.size,
       });
 
-      // Send initial status data
       getAllStatus()
         .then((statuses) => {
           const filteredStatuses =
@@ -260,7 +218,6 @@ export async function GET(request: NextRequest) {
           });
         });
 
-      // Set up periodic heartbeat
       const heartbeatInterval = setInterval(() => {
         if (!connection.connected) {
           clearInterval(heartbeatInterval);
@@ -277,22 +234,18 @@ export async function GET(request: NextRequest) {
         }
       }, PING_INTERVAL);
 
-      // Handle client disconnect
       request.signal.addEventListener("abort", () => {
         logger.log(`SSE connection closed: ${connectionId}`);
         connection.connected = false;
 
-        // UPDATE: Remove dari both stores
         connections.delete(connectionId);
-        sseConnections.delete(connectionId); // ADD INI
+        sseConnections.delete(connectionId);
 
         clearInterval(heartbeatInterval);
 
         try {
           controller.close();
-        } catch (e) {
-          // Already closed
-        }
+        } catch (e) {}
       });
     },
 
@@ -306,7 +259,6 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Return SSE response
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
@@ -319,11 +271,6 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// ====================================
-// MANAGEMENT ENDPOINTS
-// ====================================
-
-// GET with special management parameters
 export async function HEAD(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
@@ -347,13 +294,11 @@ export async function HEAD(request: NextRequest) {
   });
 }
 
-// Force cleanup (for debugging)
 export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
   const secret = searchParams.get("secret");
 
-  // Simple secret check (use proper auth in production)
   if (secret !== process.env.CRON_SECRET) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -386,10 +331,3 @@ export async function POST(request: NextRequest) {
 
   return new Response("Invalid action", { status: 400 });
 }
-
-// ====================================
-// EXPORT FOR CRON USAGE - Moved to separate file
-// ====================================
-
-// Note: In Next.js 15, we can't export additional functions from route handlers
-// The broadcast function is moved to a separate utility file

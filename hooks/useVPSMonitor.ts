@@ -1,12 +1,7 @@
-// hooks/useVPSMonitor.ts - Clean Production-Ready Implementation
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { logger } from "@/lib/logs";
-
-// ====================================
-// TYPES
-// ====================================
 
 interface DatacenterStatus {
   id: number;
@@ -74,10 +69,6 @@ interface UseVPSMonitorReturn {
   isTabVisible: boolean;
 }
 
-// ====================================
-// CONSTANTS
-// ====================================
-
 const VPS_CONFIGS = {
   1: { name: "VPS-1", specs: "4 vCores, 8GB RAM, 75GB SSD", price: "US$4.20" },
   2: {
@@ -106,10 +97,6 @@ const VPS_CONFIGS = {
     price: "US$45.39",
   },
 } as const;
-
-// ====================================
-// UTILITIES
-// ====================================
 
 const parseSpecs = (specs: string) => {
   const parts = specs.split(", ");
@@ -150,10 +137,6 @@ const transformAPIData = (apiData: APIResponse): MonitorData => {
   };
 };
 
-// ====================================
-// MAIN HOOK
-// ====================================
-
 export const useVPSMonitor = (
   options: UseVPSMonitorOptions = {}
 ): UseVPSMonitorReturn => {
@@ -163,10 +146,6 @@ export const useVPSMonitor = (
     onError,
     onUpdate,
   } = options;
-
-  // ====================================
-  // STATE
-  // ====================================
 
   const [data, setData] = useState<MonitorData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -181,24 +160,15 @@ export const useVPSMonitor = (
     typeof document !== "undefined" ? !document.hidden : true
   );
 
-  // ====================================
-  // REFS - STABLE REFERENCES
-  // ====================================
-
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const isComponentMountedRef = useRef(true);
   const initializationRef = useRef(false);
   const callbacksRef = useRef({ onError, onUpdate });
 
-  // Keep callbacks current without causing re-renders
   useEffect(() => {
     callbacksRef.current = { onError, onUpdate };
   });
-
-  // ====================================
-  // STABLE API FUNCTIONS
-  // ====================================
 
   const fetchVPSData = useCallback(async (): Promise<MonitorData | null> => {
     try {
@@ -247,20 +217,14 @@ export const useVPSMonitor = (
     }
   }, [fetchVPSData, updateData]);
 
-  // ====================================
-  // SSE MANAGEMENT
-  // ====================================
-
   const createSSEConnection = useCallback(() => {
     if (!enableSSE || typeof window === "undefined") return;
 
-    // Prevent multiple connections
     if (eventSourceRef.current?.readyState === EventSource.OPEN) {
       logger.log("SSE already connected");
       return;
     }
 
-    // Clean up existing connection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -351,18 +315,12 @@ export const useVPSMonitor = (
     }
   }, [enableSSE, refreshInterval]);
 
-  // ====================================
-  // POLLING MANAGEMENT
-  // ====================================
-
   const setupPolling = useCallback(() => {
-    // Clear existing polling
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
 
-    // Only poll if SSE is disabled or failed, and polling is requested
     if (refreshInterval > 0 && (!enableSSE || !isConnected)) {
       logger.log(`Setting up polling: ${refreshInterval}ms`);
 
@@ -379,16 +337,11 @@ export const useVPSMonitor = (
     }
   }, [refreshInterval, enableSSE, isConnected, fetchVPSData, updateData]);
 
-  // ====================================
-  // TAB VISIBILITY
-  // ====================================
-
   useEffect(() => {
     const handleVisibilityChange = () => {
       const visible = !document.hidden;
       setIsTabVisible(visible);
 
-      // Reconnect SSE if tab becomes visible and SSE is enabled but not connected
       if (visible && enableSSE && !isConnected) {
         logger.log("Tab visible, reconnecting SSE");
         createSSEConnection();
@@ -400,10 +353,6 @@ export const useVPSMonitor = (
       document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [enableSSE, isConnected, createSSEConnection]);
 
-  // ====================================
-  // INITIALIZATION - SINGLE ENTRY POINT
-  // ====================================
-
   useEffect(() => {
     if (initializationRef.current) return;
 
@@ -413,7 +362,6 @@ export const useVPSMonitor = (
     logger.log("useVPSMonitor initializing");
 
     const initialize = async () => {
-      // Initial data fetch
       const initialData = await fetchVPSData();
       if (initialData && isComponentMountedRef.current) {
         updateData(initialData);
@@ -421,7 +369,6 @@ export const useVPSMonitor = (
 
       setIsLoading(false);
 
-      // Setup connections
       if (enableSSE) {
         createSSEConnection();
       } else {
@@ -446,11 +393,7 @@ export const useVPSMonitor = (
 
       logger.log("useVPSMonitor cleanup");
     };
-  }, []); // Empty dependency array - run once
-
-  // ====================================
-  // CONNECTION MANAGEMENT
-  // ====================================
+  }, []);
 
   useEffect(() => {
     if (!initializationRef.current) return;
@@ -463,10 +406,6 @@ export const useVPSMonitor = (
       }
     };
   }, [setupPolling]);
-
-  // ====================================
-  // RETURN VALUES
-  // ====================================
 
   return useMemo(
     () => ({

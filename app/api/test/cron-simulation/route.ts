@@ -1,7 +1,3 @@
-// ====================================
-// app/api/test/cron-simulation/route.ts - CRON JOB SIMULATION
-// ====================================
-
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -12,7 +8,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Simulate the actual cron job call
     const cronResponse = await fetch(
       `${process.env.NEXT_PUBLIC_APP_URL}/api/cron/poll-ovh?secret=${process.env.CRON_SECRET}`,
       {

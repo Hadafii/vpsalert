@@ -1,4 +1,3 @@
-// app/subscribe/page.tsx
 "use client";
 
 import React, { useState, useCallback } from "react";
@@ -20,15 +19,12 @@ const SubscribePage = () => {
   const [subscriptionSuccess, setSubscriptionSuccess] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<any>(null);
 
-  // Handle successful subscription
   const handleSubscriptionSuccess = useCallback((data: any) => {
     setSubscriptionSuccess(true);
     setSubscriptionData(data);
   }, []);
 
-  // Handle subscription error
   const handleSubscriptionError = useCallback((error: string) => {
-    // Error is already handled in the SubscriptionForm component
     console.error("Subscription error:", error);
   }, []);
 

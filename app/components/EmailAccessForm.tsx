@@ -1,4 +1,3 @@
-// components/EmailAccessForm.tsx
 "use client";
 
 import React, { useState, useCallback } from "react";
@@ -20,7 +19,6 @@ import {
 } from "@tabler/icons-react";
 import axios from "axios";
 
-// Types
 interface EmailAccessFormProps {
   title?: string;
   subtitle?: string;
@@ -42,7 +40,6 @@ export default function EmailAccessForm({
   placeholder = "Enter your email address",
   className = "",
 }) {
-  // State management
   const [email, setEmail] = useState("");
   const [requestState, setRequestState] = useState<RequestState>({
     isLoading: false,
@@ -52,13 +49,11 @@ export default function EmailAccessForm({
     lastRequestTime: null,
   });
 
-  // Email validation
   const isValidEmail = useCallback((email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email) && email.length <= 320;
   }, []);
 
-  // Rate limiting check (client-side)
   const canSendRequest = useCallback((): boolean => {
     if (!requestState.lastRequestTime) return true;
     const timeDiff = Date.now() - requestState.lastRequestTime;
@@ -66,12 +61,10 @@ export default function EmailAccessForm({
     return timeDiff > oneHour;
   }, [requestState.lastRequestTime]);
 
-  // Handle form submission
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      // Validation
       if (!email.trim()) {
         setRequestState((prev) => ({
           ...prev,
@@ -103,7 +96,6 @@ export default function EmailAccessForm({
         return;
       }
 
-      // Start loading
       setRequestState((prev) => ({
         ...prev,
         isLoading: true,
@@ -125,7 +117,6 @@ export default function EmailAccessForm({
             lastRequestTime: Date.now(),
           });
 
-          // Clear email for security
           setEmail("");
         } else {
           throw new Error(
@@ -155,11 +146,10 @@ export default function EmailAccessForm({
     [email, isValidEmail, canSendRequest, requestState.lastRequestTime]
   );
 
-  // Handle input change
   const handleEmailChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setEmail(e.target.value);
-      // Clear error when user starts typing
+
       if (requestState.error) {
         setRequestState((prev) => ({ ...prev, error: null }));
       }
@@ -167,14 +157,13 @@ export default function EmailAccessForm({
     [requestState.error]
   );
 
-  // Reset form
   const handleReset = useCallback(() => {
     setRequestState({
       isLoading: false,
       success: false,
       error: null,
       emailSent: false,
-      lastRequestTime: requestState.lastRequestTime, // Keep rate limit tracking
+      lastRequestTime: requestState.lastRequestTime,
     });
   }, [requestState.lastRequestTime]);
 

@@ -1,4 +1,3 @@
-// app/api/subscriptions/[token]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   getUserByUnsubscribeToken,
@@ -10,9 +9,6 @@ import {
 } from "@/lib/queries";
 import { z } from "zod";
 import { logger } from "@/lib/logs";
-// ====================================
-// VALIDATION SCHEMAS
-// ====================================
 
 const UpdateSubscriptionSchema = z.object({
   action: z.enum(["add", "remove"]),
@@ -30,7 +26,7 @@ const BatchUpdateSchema = z.object({
       })
     )
     .min(1)
-    .max(20), // Max 20 operations at once
+    .max(20),
 });
 
 const validDatacenters = [
@@ -45,12 +41,7 @@ const validDatacenters = [
   "SYD",
 ];
 
-// ====================================
-// HELPER FUNCTIONS
-// ====================================
-
 const validateToken = (token: string): boolean => {
-  // Basic token validation
   return /^[a-f0-9]{32}$/.test(token);
 };
 
@@ -118,11 +109,6 @@ const enrichSubscriptionData = (subscriptions: any[]) => {
   }));
 };
 
-// ====================================
-// API ENDPOINTS
-// ====================================
-
-// GET /api/subscriptions/[token] - Get user subscriptions by token
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -130,7 +116,6 @@ export async function GET(
   try {
     const { token } = await params;
 
-    // Validate token format
     if (!validateToken(token)) {
       return NextResponse.json(
         {
@@ -141,7 +126,6 @@ export async function GET(
       );
     }
 
-    // Find user by unsubscribe token
     const user = await getUserByUnsubscribeToken(token);
     if (!user) {
       return NextResponse.json(
@@ -153,11 +137,9 @@ export async function GET(
       );
     }
 
-    // Get user subscriptions
     const subscriptions = await getUserSubscriptions(user.id);
     const enrichedSubscriptions = enrichSubscriptionData(subscriptions);
 
-    // Group subscriptions by status
     const activeSubscriptions = enrichedSubscriptions.filter(
       (sub) => sub.is_active
     );
@@ -165,7 +147,6 @@ export async function GET(
       (sub) => !sub.is_active
     );
 
-    // Calculate statistics
     const stats = {
       total: subscriptions.length,
       active: activeSubscriptions.length,
@@ -214,7 +195,6 @@ export async function GET(
   }
 }
 
-// PUT /api/subscriptions/[token] - Update user subscriptions
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -222,7 +202,6 @@ export async function PUT(
   try {
     const { token } = await params;
 
-    // Validate token format
     if (!validateToken(token)) {
       return NextResponse.json(
         {
@@ -233,7 +212,6 @@ export async function PUT(
       );
     }
 
-    // Find user by unsubscribe token
     const user = await getUserByUnsubscribeToken(token);
     if (!user) {
       return NextResponse.json(
@@ -245,7 +223,6 @@ export async function PUT(
       );
     }
 
-    // Check if user email is verified
     if (!user.email_verified) {
       return NextResponse.json(
         {
@@ -257,7 +234,6 @@ export async function PUT(
       );
     }
 
-    // Parse request body
     const body = await request.json();
 
     let operations: Array<{
@@ -266,7 +242,6 @@ export async function PUT(
       datacenter: string;
     }> = [];
 
-    // Handle single operation or batch operations
     if (body.subscriptions) {
       const validatedBatch = BatchUpdateSchema.parse(body);
       operations = validatedBatch.subscriptions;
@@ -275,7 +250,6 @@ export async function PUT(
       operations = [validatedSingle];
     }
 
-    // Validate all operations
     for (const op of operations) {
       if (!getVPSModels().includes(op.model)) {
         throw new Error(`Invalid VPS model: ${op.model}`);
@@ -286,7 +260,6 @@ export async function PUT(
       }
     }
 
-    // Process operations
     const results = {
       added: [] as any[],
       removed: [] as any[],
@@ -331,7 +304,6 @@ export async function PUT(
       }
     }
 
-    // Get updated subscriptions
     const updatedSubscriptions = await getUserSubscriptions(user.id);
     const activeCount = updatedSubscriptions.filter(
       (sub) => sub.is_active
@@ -396,7 +368,6 @@ export async function PUT(
   }
 }
 
-// DELETE /api/subscriptions/[token] - Unsubscribe user completely
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -404,7 +375,6 @@ export async function DELETE(
   try {
     const { token } = await params;
 
-    // Validate token format
     if (!validateToken(token)) {
       return NextResponse.json(
         {
@@ -415,7 +385,6 @@ export async function DELETE(
       );
     }
 
-    // Find user by unsubscribe token
     const user = await getUserByUnsubscribeToken(token);
     if (!user) {
       return NextResponse.json(
@@ -427,7 +396,6 @@ export async function DELETE(
       );
     }
 
-    // Get current subscriptions count before unsubscribing
     const currentSubscriptions = await getUserSubscriptions(user.id);
     const activeCount = currentSubscriptions.filter(
       (sub) => sub.is_active
@@ -446,7 +414,6 @@ export async function DELETE(
       });
     }
 
-    // Unsubscribe user from all subscriptions
     const success = await unsubscribeUser(user.id);
 
     if (success) {
@@ -481,7 +448,6 @@ export async function DELETE(
   }
 }
 
-// HEAD /api/subscriptions/[token] - Check token validity
 export async function HEAD(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -514,7 +480,6 @@ export async function HEAD(
   }
 }
 
-// OPTIONS /api/subscriptions/[token] - CORS support
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,

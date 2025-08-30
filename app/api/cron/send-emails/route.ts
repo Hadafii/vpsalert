@@ -1,33 +1,27 @@
-// app/api/cron/send-emails/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getPendingEmails,
-  markEmailAsSent,
+  getPendingEmailsGroupedByUser,
+  markMultipleEmailsAsSent,
   incrementEmailFailedAttempts,
-  EmailNotification,
-  StatusChange,
+  getEmailNotificationStats,
+  cleanupFailedEmails,
+  testDatabaseQuery,
+  EmailDigest,
 } from "@/lib/queries";
-import { sendNotificationEmail, sendEmailBatch } from "@/lib/email";
+import { sendDigestEmail } from "@/lib/email";
 import { logger } from "@/lib/logs";
-// ====================================
-// EMAIL PROCESSING CONFIGURATION
-// ====================================
+import { testConnection } from "@/lib/db";
 
-const BATCH_SIZE = 50; // Process max 50 emails per run
-const MAX_PARALLEL_SENDS = 10; // Send max 10 emails in parallel
-const SEND_DELAY_MS = 100; // Delay between parallel batches (rate limiting)
-const MAX_PROCESSING_TIME = 300000; // 5 minutes max processing time
+const BATCH_SIZE = 20;
+const MAX_PARALLEL_SENDS = 3;
+const SEND_DELAY_MS = 1000;
+const MAX_PROCESSING_TIME = 240000;
 
-// Rate limiting configuration
 const RATE_LIMITS = {
-  perSecond: 10,
-  perMinute: 300,
-  perHour: 5000,
+  perSecond: 3,
+  perMinute: 100,
+  perHour: 1500,
 };
-
-// ====================================
-// RATE LIMITING & MONITORING
-// ====================================
 
 interface RateLimitCounter {
   count: number;
@@ -40,11 +34,9 @@ const rateLimitCounters = {
   hour: { count: 0, resetTime: 0 } as RateLimitCounter,
 };
 
-// Check and update rate limits
 const checkRateLimit = (): boolean => {
   const now = Date.now();
 
-  // Reset counters if needed
   if (now > rateLimitCounters.second.resetTime) {
     rateLimitCounters.second = { count: 0, resetTime: now + 1000 };
   }
@@ -55,27 +47,24 @@ const checkRateLimit = (): boolean => {
     rateLimitCounters.hour = { count: 0, resetTime: now + 3600000 };
   }
 
-  // Check limits
-  if (rateLimitCounters.second.count >= RATE_LIMITS.perSecond) return false;
-  if (rateLimitCounters.minute.count >= RATE_LIMITS.perMinute) return false;
-  if (rateLimitCounters.hour.count >= RATE_LIMITS.perHour) return false;
-
-  return true;
+  return (
+    rateLimitCounters.second.count < RATE_LIMITS.perSecond &&
+    rateLimitCounters.minute.count < RATE_LIMITS.perMinute &&
+    rateLimitCounters.hour.count < RATE_LIMITS.perHour
+  );
 };
 
-// Increment rate limit counters
 const incrementRateLimit = () => {
   rateLimitCounters.second.count++;
   rateLimitCounters.minute.count++;
   rateLimitCounters.hour.count++;
 };
 
-// ====================================
-// EMAIL PROCESSING LOGIC
-// ====================================
-
-interface ProcessingResult {
-  emailId: number;
+interface DigestProcessingResult {
+  userId: number;
+  email: string;
+  vpsCount: number;
+  emailIds: number[];
   success: boolean;
   error?: string;
   duration: number;
@@ -83,132 +72,176 @@ interface ProcessingResult {
 }
 
 interface ProcessingSummary {
-  total: number;
-  sent: number;
-  failed: number;
+  totalUsers: number;
+  totalEmails: number;
+  usersProcessed: number;
+  emailsSent: number;
+  emailsFailed: number;
   rateLimited: number;
   duration: number;
   errors: string[];
 }
 
-// Process single email
-const processSingleEmail = async (
-  email: EmailNotification & { email: string; unsubscribe_token: string }
-): Promise<ProcessingResult> => {
+const processDigestEmail = async (
+  digestData: EmailDigest
+): Promise<DigestProcessingResult> => {
   const startTime = Date.now();
-  const result: ProcessingResult = {
-    emailId: email.id,
+  const result: DigestProcessingResult = {
+    userId: digestData.user_id,
+    email: digestData.email,
+    vpsCount: digestData.notifications.length,
+    emailIds: digestData.notifications.map((n) => n.id),
     success: false,
     duration: 0,
   };
 
   try {
-    // Check rate limiting
     if (!checkRateLimit()) {
       result.rateLimited = true;
       result.duration = Date.now() - startTime;
+      logger.warn(
+        `Rate limited digest for user ${digestData.user_id} (${digestData.email})`
+      );
       return result;
     }
 
-    // Prepare email data
-    const emailData = {
-      email: email.email,
-      model: email.model,
-      datacenter: email.datacenter,
-      statusChange: email.status_change as StatusChange,
-      unsubscribeToken: email.unsubscribe_token,
-    };
+    if (!digestData.email || !digestData.unsubscribe_token) {
+      throw new Error("Invalid digest data: missing email or token");
+    }
 
-    // Send email
-    const sent = await sendNotificationEmail(emailData);
+    if (!digestData.notifications.length) {
+      throw new Error("Invalid digest data: no notifications");
+    }
+
+    logger.log(
+      `Sending digest email to ${digestData.email} with ${digestData.notifications.length} VPS updates`
+    );
+
+    const emailPromise = sendDigestEmail(digestData);
+    const timeoutPromise = new Promise<boolean>((_, reject) =>
+      setTimeout(() => reject(new Error("Email send timeout")), 45000)
+    );
+
+    const sent = await Promise.race([emailPromise, timeoutPromise]);
 
     if (sent) {
-      // Mark as sent in database
-      await markEmailAsSent(email.id);
+      await markMultipleEmailsAsSent(result.emailIds);
       incrementRateLimit();
       result.success = true;
 
       logger.log(
-        `✅ Email sent to ${email.email} for model ${email.model} in ${email.datacenter}`
+        `✅ Digest email sent successfully to ${digestData.email} ` +
+          `(${digestData.notifications.length} VPS updates, email IDs: ${result.emailIds.join(", ")})`
       );
     } else {
-      throw new Error("Email sending returned false");
+      throw new Error("Email service returned false");
     }
   } catch (error) {
-    result.error = (error as Error).message;
+    const errorMessage = (error as Error).message;
+    result.error = errorMessage;
 
-    // Increment failed attempts
-    try {
-      await incrementEmailFailedAttempts(email.id);
-    } catch (dbError) {
-      logger.error("Failed to increment email attempts:", dbError);
+    if (!result.rateLimited) {
+      try {
+        await Promise.allSettled(
+          result.emailIds.map((id) => incrementEmailFailedAttempts(id))
+        );
+        logger.error(
+          `❌ Digest email failed for ${digestData.email}: ${errorMessage}`
+        );
+      } catch (dbError) {
+        logger.error(
+          `Failed to update failed attempts for emails ${result.emailIds.join(", ")}:`,
+          dbError
+        );
+      }
     }
-
-    logger.error(`❌ Failed to send email ${email.id}:`, result.error);
   }
 
   result.duration = Date.now() - startTime;
   return result;
 };
 
-// Process emails in controlled batches
-const processEmailBatch = async (
-  emails: Array<
-    EmailNotification & { email: string; unsubscribe_token: string }
-  >
+const processDigestBatch = async (
+  digestList: EmailDigest[]
 ): Promise<ProcessingSummary> => {
   const startTime = Date.now();
   const summary: ProcessingSummary = {
-    total: emails.length,
-    sent: 0,
-    failed: 0,
+    totalUsers: digestList.length,
+    totalEmails: digestList.reduce(
+      (sum, digest) => sum + digest.notifications.length,
+      0
+    ),
+    usersProcessed: 0,
+    emailsSent: 0,
+    emailsFailed: 0,
     rateLimited: 0,
     duration: 0,
     errors: [],
   };
 
-  logger.log(`📧 Processing ${emails.length} pending emails...`);
+  if (digestList.length === 0) {
+    logger.log("📭 No digest emails to process");
+    return summary;
+  }
 
-  // Process emails in parallel batches
-  for (let i = 0; i < emails.length; i += MAX_PARALLEL_SENDS) {
-    const batch = emails.slice(i, i + MAX_PARALLEL_SENDS);
+  logger.log(
+    `📧 Processing ${digestList.length} digest emails ` +
+      `(${summary.totalEmails} total VPS notifications)...`
+  );
 
-    // Process batch in parallel
-    const batchPromises = batch.map((email) => processSingleEmail(email));
-    const batchResults = await Promise.allSettled(batchPromises);
+  for (let i = 0; i < digestList.length; i++) {
+    const digest = digestList[i];
 
-    // Collect results
-    batchResults.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        const emailResult = result.value;
+    try {
+      const result = await processDigestEmail(digest);
+      summary.usersProcessed++;
 
-        if (emailResult.success) {
-          summary.sent++;
-        } else if (emailResult.rateLimited) {
-          summary.rateLimited++;
-        } else {
-          summary.failed++;
-          if (emailResult.error) {
-            summary.errors.push(
-              `Email ${emailResult.emailId}: ${emailResult.error}`
-            );
-          }
-        }
+      if (result.success) {
+        summary.emailsSent += result.vpsCount;
+        logger.log(
+          `Progress: ${i + 1}/${digestList.length} - ✅ Sent to ${result.email} ` +
+            `(${result.vpsCount} VPS updates)`
+        );
+      } else if (result.rateLimited) {
+        summary.rateLimited += result.vpsCount;
+        logger.warn(
+          `Progress: ${i + 1}/${digestList.length} - ⚠️ Rate limited ${result.email} ` +
+            `(${result.vpsCount} VPS updates deferred)`
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       } else {
-        summary.failed++;
-        summary.errors.push(`Email ${batch[index].id}: ${result.reason}`);
+        summary.emailsFailed += result.vpsCount;
+        const errorMsg = `User ${result.userId} (${result.email}): ${result.error}`;
+        summary.errors.push(errorMsg);
+
+        logger.error(
+          `Progress: ${i + 1}/${digestList.length} - ❌ Failed ${result.email}: ${result.error}`
+        );
       }
-    });
 
-    // Add delay between batches for rate limiting
-    if (i + MAX_PARALLEL_SENDS < emails.length) {
-      await new Promise((resolve) => setTimeout(resolve, SEND_DELAY_MS));
-    }
+      if (i < digestList.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, SEND_DELAY_MS));
+      }
 
-    // Check if we're running out of time
-    if (Date.now() - startTime > MAX_PROCESSING_TIME) {
-      logger.warn("⏰ Email processing timeout reached, stopping early");
-      break;
+      if (Date.now() - startTime > MAX_PROCESSING_TIME) {
+        logger.warn(
+          `⏰ Processing timeout reached after ${i + 1} digest emails`
+        );
+        break;
+      }
+
+      if ((i + 1) % 5 === 0 || i === digestList.length - 1) {
+        logger.log(
+          `Batch progress: ${i + 1}/${digestList.length} processed ` +
+            `(${summary.emailsSent} sent, ${summary.emailsFailed} failed, ${summary.rateLimited} rate limited)`
+        );
+      }
+    } catch (error) {
+      summary.emailsFailed += digest.notifications.length;
+      const errorMsg = `User ${digest.user_id} (${digest.email}): Unexpected error - ${(error as Error).message}`;
+      summary.errors.push(errorMsg);
+      logger.error(errorMsg);
     }
   }
 
@@ -216,72 +249,161 @@ const processEmailBatch = async (
   return summary;
 };
 
-// ====================================
-// MAIN CRON ENDPOINT
-// ====================================
-
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  // Security check
   const cronSecret =
     request.headers.get("X-Cron-Secret") ||
     request.nextUrl.searchParams.get("secret");
 
   if (cronSecret !== process.env.CRON_SECRET) {
-    logger.warn(
-      "Unauthorized email cron request from:",
-      request.headers.get("cf-connecting-ip") || "unknown"
-    );
+    logger.warn("❌ Unauthorized email digest cron request");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  logger.log("📬 Starting email notification processing...");
+  logger.log("📬 Starting email digest processing...");
 
   try {
-    // Get batch size from query params or use default
+    logger.log("Step 1: Testing database connection...");
+    const dbHealthy = await testConnection();
+    if (!dbHealthy) {
+      logger.error("❌ Database connection failed");
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database connection failed",
+          timestamp: new Date().toISOString(),
+          duration: Date.now() - startTime,
+        },
+        { status: 503 }
+      );
+    }
+    logger.log("✅ Database connection OK");
+
+    logger.log("Step 2: Testing database queries...");
+    const queryTest = await testDatabaseQuery();
+    if (!queryTest) {
+      logger.error("❌ Database query tests failed");
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database query test failed",
+          timestamp: new Date().toISOString(),
+          duration: Date.now() - startTime,
+        },
+        { status: 503 }
+      );
+    }
+    logger.log("✅ Database queries OK");
+
     const { searchParams } = new URL(request.url);
-    const batchSize = Math.min(
-      parseInt(searchParams.get("batch") || BATCH_SIZE.toString()),
-      100 // Maximum safety limit
+    const requestedBatchSize = parseInt(
+      searchParams.get("batch") || BATCH_SIZE.toString()
     );
+    const batchSize = Math.min(Math.max(requestedBatchSize, 1), 50);
 
-    // Fetch pending emails
-    const pendingEmails = await getPendingEmails(batchSize);
+    logger.log(`Step 3: Fetching up to ${batchSize} user digest emails...`);
 
-    if (pendingEmails.length === 0) {
-      logger.log("📭 No pending emails to process");
+    let digestEmails: EmailDigest[] = [];
+
+    try {
+      digestEmails = await getPendingEmailsGroupedByUser(batchSize);
+      const totalNotifications = digestEmails.reduce(
+        (sum, digest) => sum + digest.notifications.length,
+        0
+      );
+      logger.log(
+        `✅ Found ${digestEmails.length} users with ${totalNotifications} total VPS notifications ` +
+          `(grouped into digest emails)`
+      );
+    } catch (fetchError) {
+      logger.error("❌ Failed to fetch digest emails:", fetchError);
+      throw new Error(
+        `Failed to fetch digest emails: ${(fetchError as Error).message}`
+      );
+    }
+
+    if (digestEmails.length === 0) {
+      logger.log("📭 No pending digest emails to process");
+
+      const stats = await getEmailNotificationStats().catch(() => ({
+        pending: 0,
+        sent: 0,
+        failed: 0,
+        total: 0,
+        availableOnly: 0,
+      }));
+
       return NextResponse.json({
         success: true,
-        message: "No pending emails",
+        message: "No pending digest emails",
         timestamp: new Date().toISOString(),
-        processed: 0,
+        processed: {
+          users: 0,
+          emails: 0,
+        },
         duration: Date.now() - startTime,
+        statistics: stats,
+        rateLimits: {
+          second: `${rateLimitCounters.second.count}/${RATE_LIMITS.perSecond}`,
+          minute: `${rateLimitCounters.minute.count}/${RATE_LIMITS.perMinute}`,
+          hour: `${rateLimitCounters.hour.count}/${RATE_LIMITS.perHour}`,
+        },
       });
     }
 
-    // Process the emails
-    const summary = await processEmailBatch(pendingEmails);
+    logger.log("Step 4: Processing email digest batch...");
+    const summary = await processDigestBatch(digestEmails);
 
-    // Log results
-    const logLevel =
-      summary.failed === 0 ? "✅" : summary.sent > 0 ? "⚠️" : "❌";
+    const userSuccessRate =
+      summary.totalUsers > 0
+        ? Math.round((summary.usersProcessed / summary.totalUsers) * 100)
+        : 0;
+    const emailSuccessRate =
+      summary.totalEmails > 0
+        ? Math.round((summary.emailsSent / summary.totalEmails) * 100)
+        : 0;
+
+    const overallSuccess =
+      summary.emailsSent > 0 || summary.totalEmails === summary.rateLimited;
+
     logger.log(
-      `${logLevel} Email processing completed: ${summary.sent} sent, ` +
-        `${summary.failed} failed, ${summary.rateLimited} rate limited ` +
-        `(${summary.duration}ms)`
+      `📊 Processing completed: ${summary.usersProcessed}/${summary.totalUsers} users (${userSuccessRate}%), ` +
+        `${summary.emailsSent}/${summary.totalEmails} VPS notifications sent (${emailSuccessRate}%), ` +
+        `${summary.emailsFailed} failed, ${summary.rateLimited} rate limited (${summary.duration}ms)`
     );
 
+    const stats = await getEmailNotificationStats().catch(() => ({
+      pending: 0,
+      sent: 0,
+      failed: 0,
+      total: 0,
+      availableOnly: 0,
+    }));
+
     if (summary.errors.length > 0) {
-      logger.error("Email errors:", summary.errors.slice(0, 10)); // Show first 10 errors
+      logger.error("Sample digest errors:", summary.errors.slice(0, 3));
     }
 
-    // Prepare response
     const response = {
-      success: summary.failed < summary.total, // Success if at least some emails were processed
+      success: overallSuccess,
       timestamp: new Date().toISOString(),
       summary: {
-        ...summary,
+        users: {
+          total: summary.totalUsers,
+          processed: summary.usersProcessed,
+          successRate: userSuccessRate,
+        },
+        emails: {
+          total: summary.totalEmails,
+          sent: summary.emailsSent,
+          failed: summary.emailsFailed,
+          rateLimited: summary.rateLimited,
+          successRate: emailSuccessRate,
+        },
+        duration: summary.duration,
+        errors: summary.errors.slice(0, 10),
+        statistics: stats,
         rateLimits: {
           second: `${rateLimitCounters.second.count}/${RATE_LIMITS.perSecond}`,
           minute: `${rateLimitCounters.minute.count}/${RATE_LIMITS.perMinute}`,
@@ -289,23 +411,36 @@ export async function GET(request: NextRequest) {
         },
       },
       message:
-        summary.sent > 0
-          ? `Successfully sent ${summary.sent}/${summary.total} emails`
+        summary.emailsSent > 0
+          ? `Successfully sent ${summary.emailsSent} VPS notifications to ${summary.usersProcessed} users (${emailSuccessRate}% success rate)`
           : summary.rateLimited > 0
-            ? `Rate limited: ${summary.rateLimited} emails deferred`
-            : "Failed to send any emails",
+            ? `Rate limited: ${summary.rateLimited} VPS notifications deferred`
+            : summary.totalEmails > 0
+              ? `Processing failed: ${summary.emailsFailed} VPS notifications failed`
+              : "No emails to process",
     };
 
-    return NextResponse.json(response);
+    const statusCode = overallSuccess
+      ? 200
+      : summary.rateLimited > 0
+        ? 429
+        : 500;
+
+    return NextResponse.json(response, { status: statusCode });
   } catch (error) {
     const duration = Date.now() - startTime;
-    logger.error("❌ Email processing failed:", error);
+    const errorMessage = (error as Error).message;
+
+    logger.error("❌ Email digest processing failed:", {
+      error: errorMessage,
+      duration,
+    });
 
     return NextResponse.json(
       {
         success: false,
-        error: "Email processing failed",
-        message: (error as Error).message,
+        error: "Email digest processing failed",
+        message: errorMessage,
         timestamp: new Date().toISOString(),
         duration,
       },
@@ -314,7 +449,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST endpoint for manual triggering with custom parameters
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -324,9 +458,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Create new request with custom parameters
     const url = new URL(request.url);
-    if (body.batch) url.searchParams.set("batch", body.batch.toString());
+    if (body.batch && !isNaN(parseInt(body.batch))) {
+      url.searchParams.set(
+        "batch",
+        Math.min(parseInt(body.batch), 50).toString()
+      );
+    }
 
     const newRequest = new NextRequest(url, {
       method: "GET",
@@ -335,10 +473,11 @@ export async function POST(request: NextRequest) {
 
     return GET(newRequest);
   } catch (error) {
+    logger.error("POST request error:", error);
     return NextResponse.json(
       {
         success: false,
-        error: "Invalid request",
+        error: "Invalid POST request",
         message: (error as Error).message,
       },
       { status: 400 }
@@ -346,18 +485,24 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Health check endpoint
 export async function HEAD() {
   try {
-    // Quick check for pending emails count
-    const pendingEmails = await getPendingEmails(1);
+    const dbHealthy = await testConnection();
+    const queryHealthy = await testDatabaseQuery();
+    const stats = await getEmailNotificationStats().catch(() => null);
 
     return new Response(null, {
-      status: 200,
+      status: dbHealthy && queryHealthy ? 200 : 503,
       headers: {
-        "X-Email-Status": "ready",
-        "X-Pending-Count": pendingEmails.length.toString(),
+        "X-Email-Status": dbHealthy && queryHealthy ? "ready" : "unhealthy",
+        "X-DB-Connection": dbHealthy ? "ok" : "failed",
+        "X-DB-Queries": queryHealthy ? "ok" : "failed",
+        "X-Pending-Count": stats?.pending.toString() || "unknown",
+        "X-Available-Only": stats?.availableOnly.toString() || "unknown",
         "X-Rate-Limit-Hour": `${rateLimitCounters.hour.count}/${RATE_LIMITS.perHour}`,
+        "X-Rate-Limit-Minute": `${rateLimitCounters.minute.count}/${RATE_LIMITS.perMinute}`,
+        "X-Last-Check": new Date().toISOString(),
+        "X-Mode": "digest",
       },
     });
   } catch (error) {
@@ -366,16 +511,12 @@ export async function HEAD() {
       headers: {
         "X-Email-Status": "error",
         "X-Error": (error as Error).message,
+        "X-Mode": "digest",
       },
     });
   }
 }
 
-// ====================================
-// UTILITY ENDPOINTS
-// ====================================
-
-// DELETE endpoint to clear failed emails (admin use)
 export async function DELETE(request: NextRequest) {
   const cronSecret = request.headers.get("X-Cron-Secret");
   if (cronSecret !== process.env.CRON_SECRET) {
@@ -383,20 +524,27 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    // This would require additional database query to clear failed emails
-    // Implementation depends on your requirements
+    logger.log("🧹 Cleaning up failed email notifications...");
+
+    const cleanedCount = await cleanupFailedEmails(24);
+
+    logger.log(`✅ Cleaned up ${cleanedCount} failed email notifications`);
 
     return NextResponse.json({
       success: true,
-      message: "Failed emails cleared",
+      message: `Cleaned up ${cleanedCount} failed email notifications`,
+      cleaned: cleanedCount,
       timestamp: new Date().toISOString(),
+      mode: "digest",
     });
   } catch (error) {
+    logger.error("❌ Failed to cleanup emails:", error);
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to clear emails",
+        error: "Cleanup failed",
         message: (error as Error).message,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 }
     );

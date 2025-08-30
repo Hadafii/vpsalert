@@ -1,4 +1,3 @@
-// components/Monitor.tsx
 "use client";
 import { logger } from "@/lib/logs";
 import React from "react";
@@ -37,10 +36,6 @@ import SubscriptionForm from "./SubscriptionForm";
 import { useRouter } from "next/navigation";
 import DevMonitor, { setupDevConsoleHelpers } from "./DevMonitor";
 
-// ====================================
-// TYPE DEFINITIONS
-// ====================================
-
 export interface DatacenterStatus {
   id: number;
   model: number;
@@ -76,14 +71,7 @@ export interface MonitorData {
   lastUpdated: string;
 }
 
-// Remove the old MonitorProps interface and create new one
-interface MonitorProps {
-  // This component now handles its own data fetching
-}
-
-// ====================================
-// VPS MODEL CONFIGURATIONS
-// ====================================
+interface MonitorProps {}
 
 const VPS_CONFIGS = {
   1: { name: "VPS-1", specs: "4 vCores, 8GB RAM, 75GB SSD", price: "US$4.20" },
@@ -114,7 +102,6 @@ const VPS_CONFIGS = {
   },
 } as const;
 
-// REPLACE DATACENTER_INFO dengan ini (add SGP & SYD):
 const DATACENTER_INFO = {
   GRA: { name: "Gravelines", country: "France", flag: "🇫🇷" },
   SBG: { name: "Strasbourg", country: "France", flag: "🇫🇷" },
@@ -123,14 +110,10 @@ const DATACENTER_INFO = {
   UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
   DE: { name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
   FR: { name: "Roubaix", country: "France", flag: "🇫🇷" },
-  // NEW: Add missing datacenters
+
   SGP: { name: "Singapore", country: "Singapore", flag: "🇸🇬" },
   SYD: { name: "Sydney", country: "Australia", flag: "🇦🇺" },
 } as const;
-
-// ====================================
-// UTILITY FUNCTIONS
-// ====================================
 
 const parseSpecs = (specs: string) => {
   const parts = specs.split(", ");
@@ -153,10 +136,6 @@ const getTimeAgo = (timestamp: string): string => {
   if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}h ago`;
   return `${Math.floor(diffMinutes / 1440)}d ago`;
 };
-
-// ====================================
-// SUB-COMPONENTS
-// ====================================
 
 const StatusOverview: React.FC<{
   summary: MonitorData["summary"];
@@ -253,9 +232,6 @@ const DatacenterBadge: React.FC<{
       size={isSmall ? "sm" : "md"}
       variant={isAvailable ? "flat" : "bordered"}
       color={isAvailable ? "success" : "default"}
-      // className={`cursor-pointer transition-all hover:scale-105 ${
-      //   isAvailable ? "bg-success-50 dark:bg-success-900/20" : ""
-      // }`}
       onClick={() => onSubscribe?.(datacenter.datacenter)}
       startContent={
         isAvailable ? (
@@ -282,7 +258,6 @@ const VPSModelCard: React.FC<{
   const specs = parseSpecs(config?.specs || "");
   const hasAvailability = model.availableCount > 0;
 
-  // Get category styling based on availability
   const getCategoryColor = ():
     | "primary"
     | "secondary"
@@ -549,55 +524,41 @@ const VPSModelCard: React.FC<{
   );
 };
 
-// ====================================
-// MAIN COMPONENT
-// ====================================
-
 const Monitor: React.FC<MonitorProps> = () => {
   const router = useRouter();
 
-  // Stable callbacks to prevent unnecessary re-renders
   const handleError = useCallback((error: Error) => {
     logger.error("VPS Monitor Error:", error);
-    // You could show a toast notification here
   }, []);
 
   const handleUpdate = useCallback((newData: MonitorData) => {
     logger.log("VPS data updated:", newData.summary);
-    // You could trigger notifications or analytics here
   }, []);
 
-  // VPS Monitor data fetching - moved from page.tsx
   const { data, isLoading, error, refetch, isConnected } = useVPSMonitor({
-    refreshInterval: 15000, // 15 seconds polling
-    enableSSE: true, // Enable real-time updates
+    refreshInterval: 15000,
+    enableSSE: true,
     onError: handleError,
     onUpdate: handleUpdate,
   });
 
-  // Handle subscription to alerts
   const handleSubscribe = async (model: number, datacenter: string) => {
     try {
-      // TODO: Implement subscription logic
       logger.log(`Subscribe to Model ${model} in ${datacenter}`);
-      // You can call your subscription API here
     } catch (error) {
       logger.error("Subscription error:", error);
     }
   };
 
-  // Handle order VPS
   const handleOrder = (model: number) => {
-    // Redirect to OVH order page
     const orderUrl = `https://www.ovhcloud.com/en/vps/`;
     window.open(orderUrl, "_blank", "noopener,noreferrer");
   };
 
-  // Handle subscription success
   const handleSubscriptionSuccess = useCallback(
     (data: any) => {
       logger.log("Subscription created successfully:", data);
-      // Redirect to management page or show success message
+
       router.push("/manage");
     },
     [router]
@@ -606,13 +567,10 @@ const Monitor: React.FC<MonitorProps> = () => {
     setupDevConsoleHelpers();
   }, []);
 
-  // Handle subscription error
   const handleSubscriptionError = useCallback((error: string) => {
     logger.error("Subscription error:", error);
-    // Error is already handled in the SubscriptionForm component
   }, []);
 
-  // Fallback data when loading or no data
   const displayData = data || {
     models: [],
     summary: {

@@ -1,15 +1,12 @@
-// app/api/status/[model]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getStatusByModel } from "@/lib/queries";
 import { DatacenterStatus } from "@/lib/queries";
 import { logger } from "@/lib/logs";
-// Cache configuration
-const CACHE_TTL = 30; // 30 seconds
 
-// In-memory cache
+const CACHE_TTL = 30;
+
 const cache = new Map<string, { data: any; timestamp: number }>();
 
-// VPS model metadata
 const VPS_MODELS: Record<
   number,
   { name: string; specs: string; price: string }
@@ -42,12 +39,10 @@ const VPS_MODELS: Record<
   },
 };
 
-// Datacenter metadata
 const DATACENTER_INFO: Record<
   string,
   { name: string; country: string; flag: string }
 > = {
-  // Europe
   GRA: { name: "Gravelines", country: "France", flag: "🇫🇷" },
   SBG: { name: "Strasbourg", country: "France", flag: "🇫🇷" },
   RBX: { name: "Roubaix", country: "France", flag: "🇫🇷" },
@@ -55,15 +50,12 @@ const DATACENTER_INFO: Record<
   DE: { name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
   UK: { name: "London", country: "United Kingdom", flag: "🇬🇧" },
 
-  // Americas
   BHS: { name: "Beauharnois", country: "Canada", flag: "🇨🇦" },
 
-  // Asia Pacific - NEW!
   SGP: { name: "Singapore", country: "Singapore", flag: "🇸🇬" },
   SYD: { name: "Sydney", country: "Australia", flag: "🇦🇺" },
 };
 
-// Helper function to get cached data
 const getCachedData = (key: string) => {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL * 1000) {
@@ -72,12 +64,10 @@ const getCachedData = (key: string) => {
   return null;
 };
 
-// Helper function to set cached data
 const setCachedData = (key: string, data: any) => {
   cache.set(key, { data, timestamp: Date.now() });
 };
 
-// Validate model parameter
 const validateModel = (model: string): number | null => {
   const modelNum = parseInt(model);
   if (isNaN(modelNum) || modelNum < 1 || modelNum > 6) {
@@ -86,7 +76,6 @@ const validateModel = (model: string): number | null => {
   return modelNum;
 };
 
-// Enrich status data with metadata
 const enrichStatusData = (statuses: DatacenterStatus[], model: number) => {
   return statuses.map((status) => ({
     ...status,
@@ -95,16 +84,15 @@ const enrichStatusData = (statuses: DatacenterStatus[], model: number) => {
       country: "Unknown",
       flag: "🌍",
     },
-    // Add time since last change
+
     timeSinceChange: status.last_changed
       ? getTimeSince(new Date(status.last_changed))
       : null,
-    // Add time since last check
+
     timeSinceCheck: getTimeSince(new Date(status.last_checked)),
   }));
 };
 
-// Helper function to calculate time since
 const getTimeSince = (date: Date): string => {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -118,7 +106,6 @@ const getTimeSince = (date: Date): string => {
   return "Just now";
 };
 
-// Calculate availability statistics for the model
 const calculateModelStats = (statuses: DatacenterStatus[]) => {
   const total = statuses.length;
   const available = statuses.filter((s) => s.status === "available").length;
@@ -147,7 +134,6 @@ const calculateModelStats = (statuses: DatacenterStatus[]) => {
   };
 };
 
-// GET /api/status/[model]
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ model: string }> }
@@ -158,7 +144,6 @@ export async function GET(
     const includeMetadata = searchParams.get("metadata") === "true";
     const includeStats = searchParams.get("stats") === "true";
 
-    // Validate model parameter
     const modelNum = validateModel(modelParam);
     if (modelNum === null) {
       return NextResponse.json(
@@ -171,7 +156,6 @@ export async function GET(
       );
     }
 
-    // Check if model exists in our configuration
     if (!VPS_MODELS[modelNum]) {
       return NextResponse.json(
         {
@@ -183,7 +167,6 @@ export async function GET(
       );
     }
 
-    // Try to get from cache first
     const cacheKey = `model-${modelNum}-${includeMetadata}-${includeStats}`;
     const cachedData = getCachedData(cacheKey);
 
@@ -196,10 +179,8 @@ export async function GET(
       });
     }
 
-    // Fetch from database
     const statuses = await getStatusByModel(modelNum);
 
-    // Prepare response data
     let responseData: any = {
       model: modelNum,
       modelInfo: VPS_MODELS[modelNum],
@@ -217,14 +198,12 @@ export async function GET(
       responseData.statistics = calculateModelStats(statuses);
     }
 
-    // Add quick availability summary
     responseData.quickSummary = {
       availableCount: statuses.filter((s) => s.status === "available").length,
       totalCount: statuses.length,
       hasAvailability: statuses.some((s) => s.status === "available"),
     };
 
-    // Cache the response
     setCachedData(cacheKey, responseData);
 
     return NextResponse.json(responseData, {
@@ -247,7 +226,6 @@ export async function GET(
   }
 }
 
-// HEAD /api/status/[model] - for health checks
 export async function HEAD(
   request: NextRequest,
   { params }: { params: Promise<{ model: string }> }
@@ -260,7 +238,6 @@ export async function HEAD(
       return new NextResponse(null, { status: 404 });
     }
 
-    // Quick health check
     await getStatusByModel(modelNum);
 
     return new NextResponse(null, {
@@ -282,7 +259,6 @@ export async function HEAD(
   }
 }
 
-// OPTIONS /api/status/[model] - CORS handling
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,

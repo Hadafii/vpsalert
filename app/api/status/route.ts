@@ -1,15 +1,12 @@
-// app/api/status/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getAllStatus } from "@/lib/queries";
 import { DatacenterStatus } from "@/lib/queries";
 import { logger } from "@/lib/logs";
-// Cache configuration
-const CACHE_TTL = 30; // 30 seconds
 
-// In-memory cache
+const CACHE_TTL = 30;
+
 const cache = new Map<string, { data: any; timestamp: number }>();
 
-// Helper function to get cached data
 const getCachedData = (key: string) => {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL * 1000) {
@@ -18,11 +15,9 @@ const getCachedData = (key: string) => {
   return null;
 };
 
-// Helper function to set cached data
 const setCachedData = (key: string, data: any) => {
   cache.set(key, { data, timestamp: Date.now() });
 
-  // Clean old cache entries (keep max 100 entries)
   if (cache.size > 100) {
     const keys = Array.from(cache.keys());
     const oldestKey = keys[0];
@@ -30,7 +25,6 @@ const setCachedData = (key: string, data: any) => {
   }
 };
 
-// Group status by model for better frontend consumption
 const groupStatusByModel = (statuses: DatacenterStatus[]) => {
   const grouped: Record<number, DatacenterStatus[]> = {};
 
@@ -44,7 +38,6 @@ const groupStatusByModel = (statuses: DatacenterStatus[]) => {
   return grouped;
 };
 
-// Calculate summary statistics
 const calculateSummary = (statuses: DatacenterStatus[]) => {
   const total = statuses.length;
   const available = statuses.filter((s) => s.status === "available").length;
@@ -59,14 +52,12 @@ const calculateSummary = (statuses: DatacenterStatus[]) => {
   };
 };
 
-// GET /api/status
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const format = searchParams.get("format") || "grouped"; // 'grouped' | 'flat'
+    const format = searchParams.get("format") || "grouped";
     const includeSummary = searchParams.get("summary") === "true";
 
-    // Try to get from cache first
     const cacheKey = `all-status-${format}-${includeSummary}`;
     const cachedData = getCachedData(cacheKey);
 
@@ -79,10 +70,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch from database
     const statuses = await getAllStatus();
 
-    // Prepare response data
     let responseData: any = {
       lastUpdated: new Date().toISOString(),
       count: statuses.length,
@@ -98,7 +87,6 @@ export async function GET(request: NextRequest) {
       responseData.summary = calculateSummary(statuses);
     }
 
-    // Cache the response
     setCachedData(cacheKey, responseData);
 
     return NextResponse.json(responseData, {
@@ -121,10 +109,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// HEAD /api/status - for health checks
 export async function HEAD() {
   try {
-    // Quick health check - just check if we can connect to database
     await getAllStatus();
 
     return new NextResponse(null, {
@@ -145,7 +131,6 @@ export async function HEAD() {
   }
 }
 
-// OPTIONS /api/status - CORS handling
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,

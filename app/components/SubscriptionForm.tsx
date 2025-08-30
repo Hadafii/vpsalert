@@ -1,4 +1,3 @@
-// components/SubscriptionForm.tsx
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
@@ -26,7 +25,6 @@ import {
 } from "@tabler/icons-react";
 import axios from "axios";
 
-// Types
 interface VPSModel {
   id: number;
   name: string;
@@ -59,7 +57,6 @@ interface FormState {
   emailSent: boolean;
 }
 
-// Default data based on existing system
 const DEFAULT_VPS_MODELS: VPSModel[] = [
   {
     id: 1,
@@ -107,7 +104,7 @@ const DEFAULT_DATACENTERS: DatacenterInfo[] = [
   { code: "UK", name: "London", country: "United Kingdom", flag: "🇬🇧" },
   { code: "DE", name: "Frankfurt", country: "Germany", flag: "🇩🇪" },
   { code: "FR", name: "Roubaix", country: "France", flag: "🇫🇷" },
-  // NEW: Add Singapore and Sydney
+
   { code: "SGP", name: "Singapore", country: "Singapore", flag: "🇸🇬" },
   { code: "SYD", name: "Sydney", country: "Australia", flag: "🇦🇺" },
 ];
@@ -119,7 +116,6 @@ export default function SubscriptionForm({
   onSuccess,
   onError,
 }: SubscriptionFormProps) {
-  // Form state
   const [formState, setFormState] = useState<FormState>({
     email: "",
     selectedModels: [],
@@ -130,13 +126,11 @@ export default function SubscriptionForm({
     emailSent: false,
   });
 
-  // Email validation
   const isValidEmail = useCallback((email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email) && email.length <= 320;
   }, []);
 
-  // Form validation
   const isFormValid = useMemo(() => {
     return (
       isValidEmail(formState.email.trim()) &&
@@ -150,26 +144,23 @@ export default function SubscriptionForm({
     isValidEmail,
   ]);
 
-  // Calculate total subscriptions
   const totalSubscriptions = useMemo(() => {
     return (
       formState.selectedModels.length * formState.selectedDatacenters.length
     );
   }, [formState.selectedModels, formState.selectedDatacenters]);
 
-  // Handle email change
   const handleEmailChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormState((prev) => ({
         ...prev,
         email: e.target.value,
-        error: prev.error ? null : prev.error, // Clear error when user types
+        error: prev.error ? null : prev.error,
       }));
     },
     []
   );
 
-  // Handle model selection
   const handleModelChange = useCallback((selectedModels: string[]) => {
     setFormState((prev) => ({
       ...prev,
@@ -177,7 +168,6 @@ export default function SubscriptionForm({
     }));
   }, []);
 
-  // Handle datacenter selection
   const handleDatacenterChange = useCallback(
     (selectedDatacenters: string[]) => {
       setFormState((prev) => ({
@@ -188,7 +178,6 @@ export default function SubscriptionForm({
     []
   );
 
-  // Handle form submission
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -198,7 +187,6 @@ export default function SubscriptionForm({
       setFormState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
-        // Prepare subscription data
         const subscriptions = formState.selectedModels.flatMap((modelId) =>
           formState.selectedDatacenters.map((datacenter) => ({
             model: parseInt(modelId),
@@ -256,7 +244,6 @@ export default function SubscriptionForm({
     ]
   );
 
-  // Reset form
   const handleReset = useCallback(() => {
     setFormState({
       email: "",
@@ -269,7 +256,6 @@ export default function SubscriptionForm({
     });
   }, []);
 
-  // Render VPS model selection
   const renderVPSModels = useMemo(
     () => (
       <CheckboxGroup
@@ -311,7 +297,6 @@ export default function SubscriptionForm({
     [vpsModels, formState.selectedModels, handleModelChange]
   );
 
-  // Render datacenter selection
   const renderDatacenters = useMemo(
     () => (
       <CheckboxGroup

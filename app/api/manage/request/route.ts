@@ -1,18 +1,15 @@
-// app/api/manage/request/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateUser } from "@/lib/queries";
 import { checkRateLimit } from "@/lib/db-rate-limiter";
 import { getClientIP, sanitizeEmail } from "@/lib/security";
 import { logger } from "@/lib/logs";
-import { sendManagementEmail } from "@/lib/email"; // Import from existing email system
+import { sendManagementEmail } from "@/lib/email";
 
-// POST /api/manage/request - Send management link to email
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const clientIP = getClientIP(request);
 
   try {
-    // Parse request body
     const body = await request.json();
     const { email } = body;
 
@@ -27,7 +24,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate and sanitize email
     let cleanEmail: string;
     try {
       cleanEmail = sanitizeEmail(email);
@@ -42,8 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Rate limiting - Less strict for management requests
-    const allowed = await checkRateLimit(`manage_${clientIP}`, 60, 5); // 5 requests per hour (increased)
+    const allowed = await checkRateLimit(`manage_${clientIP}`, 60, 5);
     if (!allowed) {
       logger.warn(`Management request rate limit exceeded for ${clientIP}`);
       return NextResponse.json(
@@ -57,11 +52,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Additional rate limiting per email - Also less strict
     const emailAllowed = await checkRateLimit(
       `manage_email_${cleanEmail}`,
-      30, // 30 minutes instead of 60
-      3 // 3 per 30 minutes instead of 2 per hour
+      30,
+      3
     );
     if (!emailAllowed) {
       logger.warn(
@@ -81,21 +75,18 @@ export async function POST(request: NextRequest) {
       `Management link request from ${clientIP} for email: ${cleanEmail}`
     );
 
-    // Get or create user (this will create user if doesn't exist)
     const user = await getOrCreateUser(cleanEmail);
 
     if (!user.unsubscribe_token) {
       throw new Error("User created without unsubscribe token");
     }
 
-    // Send management email using existing email system
     const emailSent = await sendManagementEmail(
       cleanEmail,
       user.unsubscribe_token
     );
 
     if (!emailSent) {
-      // Don't throw error immediately, log but continue
       logger.warn(
         `Management email failed for ${cleanEmail}, but continuing...`
       );
@@ -109,10 +100,10 @@ export async function POST(request: NextRequest) {
           data: {
             email: cleanEmail,
             canRetry: true,
-            retryAfter: 300, // 5 minutes
+            retryAfter: 300,
           },
         },
-        { status: 503 } // Service temporarily unavailable
+        { status: 503 }
       );
     }
 
@@ -137,7 +128,6 @@ export async function POST(request: NextRequest) {
     const duration = Date.now() - startTime;
     logger.error("Management request failed:", error);
 
-    // Don't expose internal error details to client
     return NextResponse.json(
       {
         success: false,
@@ -155,7 +145,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET /api/manage/request - Info about the endpoint
 export async function GET() {
   return NextResponse.json({
     endpoint: "POST /api/manage/request",
@@ -177,7 +166,6 @@ export async function GET() {
   });
 }
 
-// OPTIONS /api/manage/request - CORS support
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,

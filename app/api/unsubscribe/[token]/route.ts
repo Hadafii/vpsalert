@@ -1,4 +1,3 @@
-// app/api/unsubscribe/[token]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   getUserByUnsubscribeToken,
@@ -7,18 +6,10 @@ import {
 } from "@/lib/queries";
 import { getClientIP } from "@/lib/security";
 import { logger } from "@/lib/logs";
-// ====================================
-// HELPER FUNCTIONS
-// ====================================
 
 const validateUnsubscribeToken = (token: string): boolean => {
-  // Basic token validation - should be 32-character hex string
   return /^[a-f0-9]{32}$/.test(token);
 };
-
-// ====================================
-// HTML PAGES
-// ====================================
 
 const getUnsubscribePageHTML = (user: any, activeSubscriptions: number) => `
 <!DOCTYPE html>
@@ -362,11 +353,6 @@ const getErrorPageHTML = (error: string, description: string) => `
 </html>
 `;
 
-// ====================================
-// API ENDPOINTS
-// ====================================
-
-// GET /api/unsubscribe/[token] - Show unsubscribe confirmation page
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -380,7 +366,6 @@ export async function GET(
       `Unsubscribe page request from ${clientIP} with token: ${token.substring(0, 8)}...`
     );
 
-    // Validate token format
     if (!validateUnsubscribeToken(token)) {
       logger.warn(`Invalid unsubscribe token format from ${clientIP}`);
 
@@ -396,7 +381,6 @@ export async function GET(
       );
     }
 
-    // Find user by unsubscribe token
     const user = await getUserByUnsubscribeToken(token);
 
     if (!user) {
@@ -416,7 +400,6 @@ export async function GET(
       );
     }
 
-    // Get user's subscriptions
     const subscriptions = await getUserSubscriptions(user.id);
     const activeSubscriptions = subscriptions.filter((sub) => sub.is_active);
 
@@ -424,7 +407,6 @@ export async function GET(
       `Showing unsubscribe page for ${user.email} (${activeSubscriptions.length} active subscriptions)`
     );
 
-    // Return confirmation page
     return new NextResponse(
       getUnsubscribePageHTML(user, activeSubscriptions.length),
       {
@@ -451,7 +433,6 @@ export async function GET(
   }
 }
 
-// POST /api/unsubscribe/[token] - Process unsubscribe request
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -465,9 +446,7 @@ export async function POST(
       `Unsubscribe action from ${clientIP} with token: ${token.substring(0, 8)}...`
     );
 
-    // Validate token format
     if (!validateUnsubscribeToken(token)) {
-      // Check if this is a JSON request or form submission
       const acceptHeader = request.headers.get("accept") || "";
       const isJsonRequest = acceptHeader.includes("application/json");
 
@@ -495,7 +474,6 @@ export async function POST(
       );
     }
 
-    // Find user by unsubscribe token
     const user = await getUserByUnsubscribeToken(token);
 
     if (!user) {
@@ -525,12 +503,10 @@ export async function POST(
       );
     }
 
-    // Get current subscriptions before unsubscribing
     const subscriptions = await getUserSubscriptions(user.id);
     const activeSubscriptions = subscriptions.filter((sub) => sub.is_active);
     const activeCount = activeSubscriptions.length;
 
-    // Unsubscribe user
     const success = await unsubscribeUser(user.id);
 
     if (!success) {
@@ -541,7 +517,6 @@ export async function POST(
       `✅ User ${user.email} successfully unsubscribed (${activeCount} subscriptions removed)`
     );
 
-    // Check if this is a JSON request
     const acceptHeader = request.headers.get("accept") || "";
     const isJsonRequest = acceptHeader.includes("application/json");
 
@@ -558,7 +533,6 @@ export async function POST(
       });
     }
 
-    // Return success page
     return new NextResponse(getSuccessPageHTML(user.email, activeCount), {
       status: 200,
       headers: {
@@ -598,7 +572,6 @@ export async function POST(
   }
 }
 
-// OPTIONS /api/unsubscribe/[token] - CORS support
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
