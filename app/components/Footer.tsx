@@ -192,7 +192,7 @@ const Footer: React.FC<FooterProps> = ({ className = "" }) => {
           {/* Social Links */}
           <div className="flex items-center space-x-4">
             <Link
-              href="https://github.com/yourusername/vps-alert"
+              href="https://github.com/Hadafii/vpsalert"
               isExternal
               className="text-default-500 hover:text-default-700 transition-colors"
             >
